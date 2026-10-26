@@ -1,0 +1,27 @@
+/* 色と書体の基準。プロトタイプ（docs/prototype/puchi-mahjong.html）の :root と同じ値 */
+:root {
+  --felt: #1e4637;
+  --felt-dark: #142f25;
+  --line: #2f5f4c;
+  --fg: #e8efe8;
+  --muted: #9db6a8;
+  --gold: #d8aa45;
+  --gold-ink: #2a1e05;
+  --ivory: #f4eedb;
+  --ivory-edge: #d9cfb3;
+  --tile-side: #3c7d63;
+  --ink: #1c1b18;
+  --man: #b0262f;
+  --pin: #1d4f9a;
+  --sou: #18763f;
+  --danger: #e07a6a;
+  --f-tile: 'Shippori Mincho B1', 'Hiragino Mincho ProN', 'Yu Mincho', serif;
+  --f-body: 'Zen Kaku Gothic New', 'Hiragino Sans', 'Yu Gothic', system-ui, sans-serif;
+  color-scheme: dark;
+}
+
+body {
+  font-family: var(--f-body);
+  background: var(--felt);
+  color: var(--fg);
+}

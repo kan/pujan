@@ -1,0 +1,23 @@
+{
+  "name": "@pujan/frontend",
+  "version": "0.0.1",
+  "private": true,
+  "description": "Vue.js SPA frontend",
+  "type": "module",
+  "scripts": {
+    "build": "vue-tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "test": "vitest run --passWithNoTests"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-vue": "^6.0.10",
+    "pinia": "^4.1.0",
+    "typescript": "^6.0.3",
+    "vite": "^8.3.4",
+    "vite-plugin-pwa": "^2.0.0",
+    "vitest": "^5.0.5",
+    "vue": "^3.5.44",
+    "vue-router": "^5.4.0",
+    "vue-tsc": "^3.3.13"
+  }
+}

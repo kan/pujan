@@ -1,0 +1,96 @@
+# プチ麻雀（pujan）— エージェント向け開発ガイド
+
+プチ麻雀は、手牌を 5 枚（雀頭 2 ＋面子 3）に縮めた麻雀を、Balatro 型のローグライトとして遊ぶ Web ゲーム。kan-game.app のゲームの 1 つで、本番は `https://pujan.kan-game.app`（予定）。
+
+## 仕様の参照
+
+- 仕様の正本は [`docs/SPEC.md`](docs/SPEC.md)。ゲームルール・役・点数・ローグライト（アイテム、ボス、祝儀）・画面・API・データ構造に関わる変更の前に、該当する節を読む
+- ルールと数値は、プロトタイプ [`docs/prototype/puchi-mahjong.html`](docs/prototype/puchi-mahjong.html) で遊んで確定したもの。判定や画面の挙動に迷ったらプロトタイプを開いて確かめる（1 ファイルの HTML。ブラウザで直接開ける）
+- 仕様をこのファイルに重複して書かない。仕様を変えたら `docs/SPEC.md` を直す
+- 要求が仕様と食い違うときは、勝手に方針を変えずに食い違いを指摘する
+
+## 現在の状態
+
+`docs/SPEC.md` §6「開発フェーズ」のフェーズ 0（骨組み）まで。
+
+- `engine/`: 役判定・点数・局の状態機械・ラン・ショップを移植済み。テストあり（`engine/tests/`）
+- `frontend/`: 仮の画面だけ（engine とのつなぎの確認用）。本来の画面はフェーズ 2 でプロトタイプから移植する
+- `backend/`: `/api/health` と ID 基盤への中継だけ。`wrangler.jsonc` はローカルの設定だけで、dev・production の環境はまだない
+- `package-lock.json` はまだない（骨組みはネットワークに出られない環境で作ったため）。最初の `npm install` で作る
+
+次に取りかかるのはフェーズ 1（エンジンの仕上げ）。
+
+## リポジトリ構成
+
+```
+pujan/
+├── engine/      # ルールエンジン（純粋 TypeScript、フレームワーク非依存）
+├── frontend/    # Vue 3 SPA（PWA）
+├── backend/     # Cloudflare Workers API（Hono、D1）
+├── scripts/     # dev.mjs（ID 基盤・backend・frontend をまとめて起動）
+└── docs/
+    ├── SPEC.md          # 仕様書（正本）
+    └── prototype/       # 確定版のプロトタイプ
+```
+
+## 技術スタック
+
+vegtab（kan/vegtab）と同じ構成にそろえる。特別な理由がない限りこの構成から外れない。
+
+- TypeScript（全パッケージ）、npm workspaces、Vitest
+- frontend: Vue 3（Composition API）、Pinia、Vite、vite-plugin-pwa
+- backend: Cloudflare Workers（Hono）、D1。SPA も同じ Worker の Static Assets で配信する
+- 認証: kan-game.app の ID（kan/game）。vegtab の `backend/src/lib/id-*.ts`・`middleware/auth.ts` を手本にする
+
+## エンジンの原則
+
+- `engine/` に Vue・Cloudflare・DOM に依存するコードを入れない。frontend と backend（操作ログの再生による検証）の両方が使う
+- 状態は書き換えず、`step()` などが新しい状態を返す。乱数（xorshift32）の状態も状態に含め、同じシードと操作列から必ず同じ結果になるようにする
+- アイテムの効果は `items.ts` の `Modifiers` への差分として書き、効く場所（`win.ts`・`score.ts`・`kyoku.ts`）で読む。アイテムを足すたびに本体の分岐を増やさない
+- 役・点数・確率を変えたらテストも直す。プロトタイプと結果が変わる変更は、意図したものか利用者に確かめる
+
+## 開発の手順
+
+### 初回
+
+```bash
+npm install
+```
+
+`package-lock.json` を作ったあとは、削除して作り直さない。npm はその時点のプラットフォーム向けの optional な native binding しか lockfile に残さないため、別の OS で `npm ci` したビルドが失敗する（vegtab の CLAUDE.md と同じ注意）。
+
+backend の型は `npm run cf-typegen -w backend` で `backend/worker-configuration.d.ts` を作ってから確かめる。
+
+### テスト
+
+```bash
+npm test                 # 全 workspace
+npm test -w engine       # engine だけ
+```
+
+### ローカル開発の起動
+
+ID 基盤（kan/game の `wrangler dev`）、backend（`wrangler dev`）、frontend（`vite`）は `scripts/dev.mjs` がまとめて起動する（vegtab・TAKO-SEN と同じ形）。
+
+| コマンド | 用途 |
+|---|---|
+| `npm run dev:roji` | [roji](https://github.com/kan/roji) を通して起動する。`https://pujan.<roji のドメイン>` で開ける |
+| `npm run dev:all` | roji なしで起動する。画面は `http://localhost:5173` |
+
+- roji が使える環境（`command -v roji` が成功し、`roji health` が「正常」）では `npm run dev:roji` を使う。その環境では `npm run dev:all`、`vite` や `wrangler dev` の直接の実行で起動しない（ポートの衝突を避けるため）
+- 開く URL は、起動時に出る `roji: https://... -> localhost:<ポート>` の行か `roji routes` で確かめる。決め打ちしない
+- kan/game をこのリポジトリの隣（`../game`）に置き、kan/game 側で `npm install`、`npm run generate-key -- --dev-vars`、`npx wrangler d1 migrations apply DB --local` を済ませておく。別の場所なら環境変数 `KAN_GAME_DIR` で指定する
+- ローカル D1 のマイグレーション（初回と、足した後）: `npm run db:migrate -w backend`
+
+### kan/game との関係
+
+ID・名前・退会は kan/game と共通。kan/game 側の変更（`ALLOWED_ORIGINS`、ゲームの登録など）が要るときは、このリポジトリの作業から kan/game を編集しない。要る変更をまとめて利用者に依頼する。
+
+### リモートの操作
+
+D1・Worker などリモートのリソースの作成、secret の登録、デプロイは、利用者の承認を得てから行う。
+
+## 書き方
+
+- コードのコメント、ドキュメント、コミットメッセージは日本語でよい（vegtab と同じ）
+- 画面の文言は、プロトタイプの言い回しにそろえる（「和了」「流局」「保留」「祝儀」など）

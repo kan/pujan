@@ -1,0 +1,796 @@
+<title>プチ麻雀</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Shippori+Mincho+B1:wght@600;800&family=Zen+Kaku+Gothic+New:wght@400;500;700&display=swap">
+<style>
+/* Layout: one-screen phone table — one status band on top, a quiet strip of info, open felt for the callout, and everything you touch (hold, hand, actions) stacked in the thumb zone */
+:root{
+  --felt:#1e4637; --felt-deep:#14322706; --felt-dark:#142f25; --line:#2f5f4c;
+  --fg:#e8efe8; --muted:#9db6a8; --gold:#d8aa45; --gold-ink:#2a1e05;
+  --ivory:#f4eedb; --ivory-edge:#d9cfb3; --tile-side:#3c7d63;
+  --ink:#1c1b18; --man:#b0262f; --pin:#1d4f9a; --sou:#18763f;
+  --danger:#e07a6a;
+  --f-tile:"Shippori Mincho B1","Hiragino Mincho ProN","Yu Mincho",serif;
+  --f-body:"Zen Kaku Gothic New","Hiragino Sans","Yu Gothic",system-ui,sans-serif;
+  color-scheme:dark;
+}
+html,body{height:100%}
+body{background:radial-gradient(120% 80% at 50% 30%,#245442 0%,var(--felt) 45%,var(--felt-dark) 100%);background-color:var(--felt);color:var(--fg);font-family:var(--f-body);font-size:14px}
+.app{height:100%;display:flex;flex-direction:column;gap:10px;max-width:520px;margin:0 auto;padding-block:8px 12px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));box-sizing:border-box}
+header{display:flex;align-items:center;gap:8px}
+h1{font-family:var(--f-tile);font-weight:800;font-size:18px;margin:0;letter-spacing:.06em}
+.spacer{flex:1}
+.ghost{background:none;border:1px solid var(--line);color:var(--fg);border-radius:8px;padding:5px 10px;font:inherit;font-size:12px;cursor:pointer}
+.ghost:focus-visible,.btn:focus-visible,.tile:focus-visible,.river:focus-visible{outline:2px solid var(--gold);outline-offset:2px}
+/* status band */
+.band{background:rgba(0,0,0,.2);border-radius:12px;padding:8px 10px 10px;display:flex;flex-direction:column;gap:6px}
+.segs{display:grid;grid-template-columns:repeat(4,1fr);gap:4px}
+.seg{position:relative;height:22px;border-radius:5px;background:rgba(255,255,255,.06);font-size:11px;color:var(--muted);display:grid;place-items:center;letter-spacing:.05em}
+.seg.done{background:rgba(255,255,255,.12);color:var(--fg)}
+.seg.cur{background:var(--fg);color:var(--felt-dark);font-weight:700}
+.seg .boss{position:absolute;top:-5px;left:-3px;background:var(--fg);color:var(--felt-dark);border-radius:4px;padding:0 3px;font-size:10px;line-height:15px}
+.seg.cur .boss{background:var(--man);color:#fff}
+.seg .oya{position:absolute;top:-5px;right:-3px;background:var(--man);color:#fff;border-radius:4px;padding:0 3px;font-size:10px;line-height:15px}
+.nums{display:flex;align-items:baseline;gap:12px;font-variant-numeric:tabular-nums}
+.nums .rd{font-weight:700;font-size:15px}
+.nums .tn{font-size:14px;color:var(--muted);border-radius:8px;padding:2px 8px;background:rgba(0,0,0,.2)}
+.nums .tn b{color:var(--fg);font-size:20px}
+.nums .tn.low{background:rgba(216,170,69,.2);color:var(--gold)}
+.nums .tn.low b{color:var(--gold)}
+.nums .tn.last{background:var(--danger);color:#2a0b06}
+.nums .tn.last b{color:#2a0b06}
+.nums .sc{margin-left:auto;font-weight:700;font-size:18px}
+.nums .sc small{color:var(--muted);font-weight:400;font-size:12px}
+.bar{height:4px;background:rgba(0,0,0,.35);border-radius:2px;overflow:hidden}
+.bar i{display:block;height:100%;background:var(--gold);transition:width .3s}
+/* info chips */
+.info{display:flex;gap:6px;align-items:center;flex-wrap:wrap;font-size:14px;color:var(--muted)}
+.info .tile{--w:28px}
+.info .c{display:inline-flex;align-items:center;gap:5px;border:1px solid var(--line);border-radius:10px;padding:4px 10px 6px 6px;min-height:36px;box-sizing:border-box}
+.info .c b{font-size:15px}
+.info .c b{color:var(--fg);font-weight:500}
+.info .c.boss{border-color:var(--danger);color:var(--danger)}
+.info .c.boss b{color:var(--danger)}
+.inv .c{font:inherit;font-size:13px;background:none;color:var(--muted);min-height:32px}
+.inv .money{border-color:var(--gold);color:var(--gold)}
+.inv .money b{color:var(--gold)}
+.inv button.c{cursor:pointer;color:var(--fg)}
+.inv .use{border-style:dashed;border-color:var(--gold)}
+.inv .use:disabled{opacity:.4;cursor:default}
+.badge{background:var(--gold);color:var(--gold-ink);border-radius:999px;padding:3px 10px;font-weight:700;letter-spacing:.1em}
+/* river strip */
+.river{display:flex;align-items:center;gap:8px;background:rgba(0,0,0,.12);border-radius:10px;padding:6px 8px;cursor:pointer;border:none;color:inherit;font:inherit;text-align:left;width:100%;box-sizing:border-box}
+.river .rl{font-size:11px;color:var(--muted);letter-spacing:.1em;flex:0 0 auto}
+.river .rt{display:flex;gap:3px;overflow:hidden;flex:1;min-width:0;justify-content:flex-end;flex-wrap:nowrap}
+.river.open .rt{flex-wrap:wrap;justify-content:flex-start}
+.river .rt .empty{color:var(--muted);font-size:12px}
+/* stage + callout */
+.stage{flex:1;min-height:0;display:flex;align-items:center;justify-content:center}
+.callout{display:flex;flex-direction:column;align-items:center;gap:8px;text-align:center;max-width:100%}
+.callout .msg{font-size:13px;color:var(--muted)}
+.callout.win{background:rgba(216,170,69,.12);border:1px solid var(--gold);border-radius:14px;padding:12px 16px}
+.callout.win .yk{font-family:var(--f-tile);font-size:20px;font-weight:800;letter-spacing:.06em;text-wrap:balance}
+.callout.win .pt{color:var(--gold);font-weight:700;font-size:16px;font-variant-numeric:tabular-nums}
+.waits{display:flex;gap:6px;flex-wrap:wrap;justify-content:center}
+.waits .w{display:flex;flex-direction:column;align-items:center;gap:2px;font-size:11px;color:var(--muted);font-variant-numeric:tabular-nums}
+.waits .w.dead{opacity:.4}
+/* hold + hand */
+.holdrow{display:flex;gap:8px;align-items:flex-end;min-height:66px;flex-wrap:wrap}
+.hg{display:flex;gap:6px;align-items:flex-end}
+.play{display:flex;flex-direction:column;gap:10px}
+.play .holdrow{order:1}
+.play .handrow{order:3}
+.nextcol{order:2;display:none}
+.holdrow .nextin{margin-left:auto;display:flex;align-items:flex-end;gap:4px;padding:5px 8px 8px;border:1px dashed var(--line);border-radius:10px}
+.nextcol:empty{display:none}
+.nextin .tile{--w:42px;cursor:default}
+.nextin .arr{color:var(--muted);font-size:15px;align-self:center}
+.nextin .nl{font-size:11px;color:var(--muted);letter-spacing:.12em;writing-mode:vertical-rl;align-self:center}
+.holdrow .hl{font-size:11px;color:var(--muted);letter-spacing:.12em;writing-mode:vertical-rl;align-self:center}
+.slot{width:40px;height:54px;border:1.5px dashed var(--line);border-radius:6px;display:grid;place-items:center;color:var(--line);font-size:11px;cursor:pointer;background:none;font-family:inherit}
+.slot.target{border-color:var(--gold);color:var(--gold)}
+.handrow{display:flex;gap:5px;align-items:flex-end;justify-content:center;padding-top:12px}
+.handrow .gap{width:10px}
+/* actions */
+.actions{display:flex;gap:8px;min-height:48px}
+.actions .btn{flex:1}
+.actions .btn.wide{flex:2}
+.actions .idle{flex:1;display:grid;place-items:center;font-size:12px;color:var(--muted)}
+.sheet .actions{display:grid;grid-template-columns:1fr 1fr}
+.btn{font:inherit;font-weight:700;font-size:15px;border-radius:10px;padding:12px 8px;border:1px solid var(--line);background:rgba(0,0,0,.2);color:var(--fg);cursor:pointer}
+.btn:disabled{opacity:.35;cursor:default}
+.btn.win{background:var(--gold);color:var(--gold-ink);border-color:var(--gold)}
+.btn.riichi{border-color:var(--gold);color:var(--gold)}
+.tile.aka .big,.tile.aka .sub{color:var(--man)}
+.tile.aka.p .big{border-color:var(--man)}
+.tile.kin{background:linear-gradient(180deg,#fff3c4,#e9c867)}
+.nextin.many .tile{--w:26px}
+.cards{display:grid;gap:8px}
+.card{border:1px solid var(--line);border-radius:12px;padding:10px 12px;display:grid;grid-template-columns:1fr auto;gap:4px 12px;align-items:center}
+.card .ct{display:flex;gap:8px;align-items:baseline;flex-wrap:wrap}
+.card .ct b{font-size:16px}
+.card .ty{font-size:11px;color:var(--gold);border:1px solid var(--gold);border-radius:4px;padding:0 5px;letter-spacing:.06em}
+.card p{grid-column:1;margin:0;font-size:12px;color:var(--muted);line-height:1.5}
+.card .btn{grid-column:2;grid-row:1/3;padding:10px 12px;font-size:14px}
+.card .btn.buy{border-color:var(--gold);color:var(--gold)}
+.card.sold{opacity:.5}
+.owns{display:grid;gap:6px}
+.own{display:grid;grid-template-columns:1fr auto;gap:2px 10px;align-items:center;border-top:1px solid var(--line);padding-top:6px}
+.own small{grid-column:1;color:var(--muted);font-size:12px}
+.own .ghost{grid-column:2;grid-row:1/3}
+.picker{display:grid;grid-template-columns:repeat(auto-fill,minmax(52px,1fr));gap:6px}
+.pick{display:flex;flex-direction:column;align-items:center;gap:3px;background:none;border:1px solid var(--line);border-radius:8px;padding:6px 2px;color:var(--muted);font:inherit;cursor:pointer}
+.pick small{font-size:10px}
+.pick:disabled{opacity:.3;cursor:default}
+.note.warn{color:var(--danger)}
+/* tiles */
+.tile{--w:52px;width:var(--w);height:calc(var(--w)*1.36);background:linear-gradient(180deg,#fffaf0,var(--ivory));border-radius:calc(var(--w)*.12);box-shadow:0 4px 0 var(--ivory-edge),0 6px 0 var(--tile-side),0 8px 10px rgba(0,0,0,.35);display:flex;flex-direction:column;align-items:center;justify-content:center;font-family:var(--f-tile);color:var(--ink);position:relative;cursor:pointer;border:none;padding:0;transition:transform .12s;user-select:none;-webkit-tap-highlight-color:transparent;flex:0 0 auto}
+.tile.sm{--w:26px;cursor:default;box-shadow:0 2px 0 var(--ivory-edge),0 3px 0 var(--tile-side)}
+.tile.md{--w:40px}
+.tile.xs{--w:22px;cursor:default;box-shadow:0 2px 0 var(--ivory-edge),0 3px 0 var(--tile-side)}
+.tile.sel{transform:translateY(-12px)}
+.tile.used{outline:2px solid var(--gold);outline-offset:2px}
+.tile .big{font-size:calc(var(--w)*.5);line-height:1;font-weight:800}
+.tile .sub{font-size:calc(var(--w)*.28);line-height:1;margin-top:calc(var(--w)*.06);font-weight:600}
+.tile.m .big{color:var(--ink)} .tile.m .sub{color:var(--man)}
+.tile.p .big{color:var(--pin);width:calc(var(--w)*.62);height:calc(var(--w)*.62);border:calc(var(--w)*.06) solid var(--pin);border-radius:50%;display:grid;place-items:center;font-size:calc(var(--w)*.36)}
+.tile.p .sub{color:var(--pin)}
+.tile.s .big{color:var(--sou)} .tile.s .sub{color:var(--sou)}
+.tile.h .big{font-size:calc(var(--w)*.62)}
+.tile.haku .big{width:calc(var(--w)*.56);height:calc(var(--w)*.76);border:calc(var(--w)*.05) solid #7b9cc4;border-radius:3px}
+.tile.hatsu .big{color:var(--sou)} .tile.chun .big{color:var(--man)}
+.tile.joker::after{content:"J";position:absolute;top:2px;right:3px;font-family:var(--f-body);font-weight:700;font-size:calc(var(--w)*.2);color:var(--gold-ink);background:var(--gold);border-radius:3px;padding:0 2px;line-height:1.2}
+.tile.drawn{margin-left:4px}
+.tile.drawn+.tile.drawn{margin-left:0}
+.next{display:flex;align-items:flex-end;gap:5px;margin-left:auto;padding:4px 6px 8px;border:1px dashed var(--line);border-radius:8px}
+.next .tile{--w:42px;cursor:default}
+.nlabel{font-size:11px;color:var(--muted);letter-spacing:.12em;writing-mode:vertical-rl;align-self:center}
+/* sheets */
+.veil{position:fixed;inset:0;background:rgba(5,15,10,.6);display:grid;place-items:end center;z-index:20;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-bottom:calc(16px + env(safe-area-inset-bottom,0px))}
+.sheet{background:#173a2d;border:1px solid var(--line);border-radius:16px;padding:18px;width:100%;max-width:488px;box-sizing:border-box;display:flex;flex-direction:column;gap:12px;max-height:85vh;overflow:auto}
+.sheet h2{font-family:var(--f-tile);font-size:26px;margin:0;letter-spacing:.08em;text-wrap:balance}
+.sheet h2 .pts{color:var(--gold);font-family:var(--f-body);font-size:22px;margin-left:8px;font-variant-numeric:tabular-nums}
+.yakulist{display:grid;grid-template-columns:1fr auto;gap:4px 12px;font-size:15px;font-variant-numeric:tabular-nums}
+.yakulist span:nth-child(even){color:var(--gold);text-align:right}
+.tilesline{display:flex;gap:4px;flex-wrap:wrap}
+.settings{display:grid;grid-template-columns:auto 1fr;gap:10px 14px;align-items:center;font-size:14px}
+.settings select{font:inherit;background:var(--felt-dark);color:var(--fg);border:1px solid var(--line);border-radius:8px;padding:6px 8px}
+.ref{display:grid;grid-template-columns:1fr auto;gap:3px 12px;font-size:13px}
+.ref .h{color:var(--gold);text-align:right;font-variant-numeric:tabular-nums}
+.ref .c{grid-column:1/-1;color:var(--muted);font-size:12px;margin:-2px 0 4px}
+.note{font-size:12px;color:var(--muted);line-height:1.6}
+@media (prefers-reduced-motion:reduce){.tile,.bar i{transition:none}}
+@media (max-width:420px){.tile{--w:46px}.nextin .tile{--w:38px}.slot{width:36px;height:50px}.tile.md{--w:36px}}
+</style>
+
+<div class="app" id="app">
+  <header>
+    <h1>プチ麻雀</h1>
+    <span class="spacer"></span>
+    <button class="ghost" id="btnRef" type="button">役表</button>
+    <button class="ghost" id="btnSet" type="button">設定</button>
+  </header>
+  <section class="band" aria-label="局の状況">
+    <div class="segs" id="track"></div>
+    <div class="nums"><span class="rd" id="sRound">東1局</span><span class="tn" id="sTurn"></span><span class="sc" id="sScore"></span></div>
+    <div class="bar"><i id="sBar" style="width:0"></i></div>
+  </section>
+  <div class="info" id="meta"></div>
+  <div class="info inv" id="inv"></div>
+  <button class="river" id="river" type="button" data-act="river" aria-label="河（タップで開閉）"></button>
+  <div class="stage"><div class="callout" id="callout" aria-live="polite"></div></div>
+  <div class="play">
+    <div class="holdrow" id="hold"></div>
+    <div class="handrow" id="hand"></div>
+  </div>
+  <div class="actions" id="actions"></div>
+</div>
+<div id="layer"></div>
+
+<script>
+(()=>{
+const DR=[31,32,33], WI=[27,28,29,30], ONE=[0,9,18], NINE=[8,17,26];
+const GREEN=new Set([19,20,21,23,25,32]);
+const KAN=['一','二','三','四','五','六','七','八','九'];
+const HON=['東','南','西','北','白','發','中'];
+const WIND=['東','南','西','北'];
+const suit=k=>k<27?Math.floor(k/9):3, num=k=>k%9;
+const isYao=k=>k>=27||k%9===0||k%9===8;
+const tileName=k=>k<27?(num(k)+1)+['萬','筒','索'][suit(k)]:HON[k-27];
+
+const cfg={turns:12,hold:3,next:2,aka:true,haitei:true};
+const TARGETS=[1000,2000,4000,8000];
+let S,G,R,SH,uid=0;
+const has=id=>!!R&&R.charms.includes(id);
+const eq=id=>!!R&&R.equip.includes(id);
+const ys=k=>{const s=suit(k);return has('iromegane')&&s===2?0:s;};
+const isJ=k=>!!S&&(S.jk.has(k)||(has('hakushi')&&k===31));
+const cap=k=>R?R.comp.count[k]:4;
+const LIMITS=[[13,8000,'数え役満'],[11,6000,'三倍満'],[8,4000,'倍満'],[6,3000,'跳満'],[5,2000,'満貫']];
+function ptsOf(han){
+  if(han<5||has('nolimit'))return 100*2**han;
+  return LIMITS.find(([h])=>han>=h)[1];
+}
+const limitName=han=>han>=5&&!has('nolimit')?LIMITS.find(([h])=>han>=h)[2]:null;
+
+/* ---------- アイテム定義 ---------- */
+const CHARMS=[
+ {id:'hayazashi',name:'早指し',desc:'6巡以内の和了で＋1翻',axis:'速攻'},
+ {id:'yasude',name:'安手の美学',desc:'役なしの和了が4倍',axis:'速攻'},
+ {id:'damaten',name:'黙聴',desc:'門前が2翻になる',axis:'門前'},
+ {id:'ippatsuya',name:'一発屋',desc:'リーチの次のツモで和了ると＋2翻',axis:'リーチ'},
+ {id:'bakuchi',name:'博打打ち',desc:'リーチの巡数ボーナス2倍、リーチ棒は300点',axis:'リーチ'},
+ {id:'ura2',name:'裏の顔',desc:'裏ドラ表示が2枚',axis:'リーチ'},
+ {id:'oyaji',name:'親父の背中',desc:'親の倍率が2倍',axis:'親番'},
+ {id:'isuwari',name:'居座り',desc:'本場ボーナスが3倍',axis:'親番'},
+ {id:'akaito',name:'赤い糸',desc:'赤牌が1枚2翻',axis:'赤ドラ'},
+ {id:'iromegane',name:'色眼鏡',desc:'萬子と索子を同じ色として扱う',axis:'言い張り'},
+ {id:'tobiishi',name:'飛び石',desc:'147・258・369を順子として扱う',axis:'言い張り'},
+ {id:'kazamidori',name:'風見鶏',desc:'すべての風牌が役牌',axis:'言い張り'},
+ {id:'hakushi',name:'白紙委任',desc:'白を万能牌として扱う',axis:'役満'},
+ {id:'chokin',name:'貯金箱',desc:'聴牌料が2倍',axis:'保険'},
+ {id:'nolimit',name:'青天井',desc:'満貫以上の上限がなくなり、翻ごとに点数が倍になる',axis:'インフレ',price:8}];
+const EQUIP=[
+ {id:'hold',name:'物置',desc:'保留枠＋1'},
+ {id:'next',name:'千里眼',desc:'ネクスト＋1'},
+ {id:'turns',name:'長考',desc:'1局の巡数＋2'},
+ {id:'dora2',name:'招き猫',desc:'ドラ表示が2枚'},
+ {id:'joker',name:'化け猫',desc:'ドラ牌が万能牌になる（ドラの翻はなくなる）'},
+ {id:'jokerplus',name:'猫に小判',desc:'万能牌として使ってもドラの翻が残る',req:'joker'}];
+const CONS=[
+ {id:'tsumo',name:'ツモ直し',desc:'今のツモ牌を山の底へ戻して引き直す'},
+ {id:'hiroi',name:'河拾い',desc:'最後に捨てた牌をツモ牌として拾う'},
+ {id:'nozoki',name:'山覗き',desc:'この局の間、山の先5枚まで見える'},
+ {id:'irekae',name:'総入れ替え',desc:'手牌とツモ牌を山に戻して配り直す（巡は進まない）'}];
+const MODS=[
+ {id:'shu',name:'朱塗り',desc:'選んだ牌の2枚を赤牌にする'},
+ {id:'kin',name:'金箔',desc:'選んだ牌の1枚を金牌にする（和了に使うと祝儀＋2）'},
+ {id:'nuki',name:'抜き取り',desc:'選んだ牌を山から全部抜く'},
+ {id:'utsushi',name:'写し',desc:'選んだ牌を5枚に増やす'}];
+const SCROLL_YAKU=['断么九','役牌','門前','混一色','清一色','プチ三色','プチ一通','プチ小四喜','プチ四暗刻','プチ国士','三対子','プチ小三元'];
+const BOSSES=[
+ {id:'seal',name:'保留封印',desc:'保留枠が使えない'},
+ {id:'fog',name:'霧',desc:'ネクストが見えない'},
+ {id:'shibari',name:'1翻縛り',desc:'役なしでは和了れない（ドラ・赤・門前は役に数えない）'},
+ {id:'short',name:'早仕舞い',desc:'巡数が4少ない'},
+ {id:'nobonus',name:'質素倹約',desc:'ドラと赤の翻がつかない'}];
+const PRICE={charm:5,equip:8,cons:3,mod:3,scroll:3};
+const TYPE_LABEL={charm:'お守り',equip:'設備',cons:'消耗品',mod:'牌の改造',scroll:'役の巻物'};
+
+function tileHTML(t,opts={}){
+  const k=t.k, cls=['tile',opts.size||''];
+  let inner;
+  if(k<27){
+    const s=suit(k);cls.push(['m','p','s'][s]);
+    inner = s===0?`<span class="big">${KAN[num(k)]}</span><span class="sub">萬</span>`
+          : s===1?`<span class="big">${num(k)+1}</span>`
+          : `<span class="big">${num(k)+1}</span><span class="sub">索</span>`;
+  } else {
+    cls.push('h');
+    if(k===31){cls.push('haku');inner='<span class="big"></span>';}
+    else{ if(k===32)cls.push('hatsu'); if(k===33)cls.push('chun'); inner=`<span class="big">${HON[k-27]}</span>`;}
+  }
+  if(isJ(k)&&!opts.plain)cls.push('joker');
+  if(t.red)cls.push('aka'); if(t.gold)cls.push('kin');
+  if(opts.sel)cls.push('sel'); if(opts.used)cls.push('used'); if(opts.extra)cls.push(opts.extra);
+  const tag=opts.btn?'button':'span';
+  const attrs=opts.btn?` type="button" data-zone="${opts.zone}" data-i="${opts.i}" aria-label="${tileName(k)}${opts.zone==='hold'?'（保留）':''}"`:` aria-label="${tileName(k)}"`;
+  return `<${tag} class="${cls.join(' ')}"${attrs}>${inner}</${tag}>`;
+}
+
+/* ---------- 役判定 ---------- */
+function meldKind(a,b,d){
+  if(a===b&&b===d)return'trip';
+  if(d<27&&ys(a)===ys(b)&&ys(b)===ys(d)){
+    const n=[num(a),num(b),num(d)].sort((x,y)=>x-y);
+    if(n[1]===n[0]+1&&n[2]===n[0]+2)return'seq';
+    if(has('tobiishi')&&n[1]===n[0]+3&&n[2]===n[0]+6)return'seq';
+  }
+  if(d<27&&num(a)===num(b)&&num(b)===num(d)&&new Set([suit(a),suit(b),suit(d)]).size===3)return'sanshoku';
+  return null;
+}
+function evalHand(arr){
+  const c=new Array(34).fill(0); arr.forEach(k=>c[k]++);
+  const kinds=[...new Set(arr)];
+  const decs=[];
+  for(const p of kinds){ if(c[p]>=2){
+    const r=arr.slice(); r.splice(r.indexOf(p),1); r.splice(r.indexOf(p),1); r.sort((x,y)=>x-y);
+    const m=meldKind(r[0],r[1],r[2]); if(m)decs.push({p,m,r});
+  }}
+  const normal=decs.filter(d=>d.m==='trip'||d.m==='seq');
+  const cats=[DR,WI,ONE,NINE];
+  const kokushi=kinds.length===4&&Math.max(...kinds.map(k=>c[k]))===2&&cats.every(cat=>kinds.filter(k=>cat.includes(k)).length===1);
+  const daisuushi=WI.every(w=>c[w]===1)&&DR.some(d=>c[d]===1);
+  const shousuushi=kinds.some(p=>{ if(c[p]<2)return false;
+    const r=c.slice(); r[p]-=2; const rest=[]; r.forEach((v,k)=>{for(let i=0;i<v;i++)rest.push(k)});
+    return rest.length===3&&rest.every(k=>WI.includes(k))&&new Set(rest).size===3;});
+  const shousangen=DR.every(d=>c[d]>=1)&&(()=>{const r=c.slice();DR.forEach(d=>r[d]--);const rest=[];r.forEach((v,k)=>{for(let i=0;i<v;i++)rest.push(k)});return rest.length===2&&rest[0]===rest[1];})();
+  const daisangen=DR.some(d=>c[d]===3&&DR.every(e=>e===d||c[e]===1));
+  const kan=kinds.some(k=>c[k]>=4);
+  const run5=arr.every(k=>k<27)&&new Set(arr.map(ys)).size===1&&(()=>{const n=arr.map(num).sort((x,y)=>x-y);return n.every((v,i)=>v===n[0]+i);})();
+  if(!decs.length&&!run5&&!kan&&!kokushi&&!daisuushi&&!shousuushi&&!shousangen&&!daisangen)return null;
+  const allHonor=arr.every(k=>k>=27), allGreen=arr.every(k=>GREEN.has(k)), allYao=arr.every(isYao);
+  const hasTrip=normal.some(d=>d.m==='trip');
+  const ym=[];
+  if(daisangen)ym.push(['プチ大三元',2]);
+  if(kan)ym.push(['プチ槓',1]);
+  if(daisuushi)ym.push(['プチ大四喜',1]);
+  if(allHonor)ym.push(['字一色',1]);
+  if(allGreen)ym.push(['緑一色',1]);
+  if(allYao&&hasTrip&&!allHonor)ym.push(['混老頭',1]);
+  if(ym.length){const n=ym.reduce((a,y)=>a+y[1],0);return{pts:8000*n,yaku:ym.map(([y,v])=>[y,v===2?'ダブル役満':'役満']),label:n>1?`${n}倍役満`:'役満'};}
+  const y=[];
+  if(kokushi)y.push(['プチ国士',1]);
+  if(arr.every(k=>!isYao(k)))y.push(['断么九',1]);
+  const ss=new Set(arr.filter(k=>k<27).map(ys));
+  if(ss.size===1){ if(arr.some(k=>k>=27))y.push(['混一色',2]); else y.push(['清一色',3]); }
+  if(run5)y.push(['プチ一通',2]);
+  if(decs.some(d=>d.m==='sanshoku'))y.push(['プチ三色',2]);
+  if(shousuushi)y.push(['プチ小四喜',2]);
+  if(shousangen)y.push(['プチ小三元',5]);
+  const yv=k=>(DR.includes(k)?1:0)+(S&&k===S.bakaze?1:0)+(S&&S.seat===k?1:0)+(has('kazamidori')&&WI.includes(k)&&!(S&&(k===S.bakaze||k===S.seat))?1:0);
+  let yb=0; normal.forEach(d=>{yb=Math.max(yb,yv(d.p)+(d.m==='trip'?yv(d.r[0]):0));});
+  if(yb)y.push(['役牌',yb]);
+  if(hasTrip)y.push(['プチ四暗刻',3]);
+  const han=y.reduce((a,v)=>a+v[1],0);
+  return{han,noyaku:han===0,pts:ptsOf(han),yaku:han?y.map(([n,v])=>[n,v+'翻']):[['役なし','']],label:han?han+'翻':'役なし'};
+}
+function combos(n,k){const out=[];const rec=(s,acc)=>{if(acc.length===k){out.push(acc.slice());return;}for(let i=s;i<n;i++){acc.push(i);rec(i+1,acc);acc.pop();}};rec(0,[]);return out;}
+function jokerCands(fixed,j){
+  if(j<=2)return[...Array(34).keys()];
+  const s=new Set([...DR,...WI,...ONE,...NINE,...GREEN]);
+  fixed.forEach(k=>{[-6,-3,-2,-1,0,1,2,3,6].forEach(d=>{const x=k+d;if(x>=0&&x<27&&suit(x)===suit(k))s.add(x);});});
+  return[...s];
+}
+function evalSix(arr){
+  const c=new Array(34).fill(0); arr.forEach(k=>c[k]++);
+  const kinds=[...new Set(arr)];
+  if(kinds.length!==3||!kinds.every(k=>c[k]===2))return null;
+  if(arr.every(k=>k>=27))return{pts:8000,yaku:[['三対子・字一色','役満']],label:'役満'};
+  const y=[['三対子',2]];
+  if(arr.every(k=>!isYao(k)))y.push(['断么九',1]);
+  const ss=new Set(arr.filter(k=>k<27).map(ys));
+  if(ss.size===1){ if(arr.some(k=>k>=27))y.push(['混一色',2]); else y.push(['清一色',3]); }
+  const han=y.reduce((a,v)=>a+v[1],0);
+  return{han,noyaku:false,pts:ptsOf(han),yaku:y.map(([n,v])=>[n,v+'翻']),label:han+'翻'};
+}
+function addHan(r,ex){
+  if(!ex.length||r.label.includes('役満'))return r;
+  const han=r.han+ex.reduce((a,e)=>a+e[1],0);
+  return{...r,han,pts:ptsOf(han),yaku:[...(r.han?r.yaku:[]),...ex.map(([n,v])=>[n,v+'翻'])],label:han+'翻'};
+}
+const doraCount=list=>S.doras.reduce((a,d)=>a+list.filter(k=>k===d).length,0);
+function bestWin(tiles,holdIds){
+  let best=null;
+  if(tiles.length<5)return null;
+  for(const n of tiles.length>=6?[5,6]:[5])for(const idx of combos(tiles.length,n)){
+    const sub=idx.map(i=>tiles[i]);
+    const fixed=sub.filter(t=>!isJ(t.k)).map(t=>t.k);
+    const j=n-fixed.length;
+    const cand=jokerCands(fixed,j);
+    const rec=(arr,left)=>{
+      if(!left){let r=n===5?evalHand(arr):evalSix(arr);
+        if(r&&S.boss==='shibari'&&r.noyaku)r=null;
+        if(r&&holdIds&&!r.label.includes('役満')){const ex=[];
+          if(!sub.some(t=>holdIds.has(t.id)))ex.push(['門前',has('damaten')?2:1]);
+          if(S.boss!=='nobonus'){
+            const dn=eq('joker')?(eq('jokerplus')?doraCount(sub.map(t=>t.k)):0):doraCount(arr);
+            if(dn)ex.push(['ドラ',dn]);
+            const ak=sub.filter(t=>t.red).length; if(ak)ex.push(['赤',ak*(has('akaito')?2:1)]);
+          }
+          r=addHan(r,ex);}
+        if(r&&(!best||r.pts>best.pts))best={...r,ids:sub.map(t=>t.id),kinds:arr.slice()};return;}
+      for(const k of cand){ if(arr.filter(x=>x===k).length>=cap(k))continue; arr.push(k);rec(arr,left-1);arr.pop(); }
+    };
+    rec(fixed.slice(),j);
+  }
+  return best;
+}
+function waitsFor(tiles){
+  const jn=tiles.filter(t=>isJ(t.k)).length;
+  if(jn>=2)return null;
+  const out=[];
+  for(let k=0;k<34;k++){ if(cap(k)&&bestWin([...tiles,{k,id:-1}]))out.push(k); }
+  return out;
+}
+
+/* ---------- 進行 ---------- */
+const rnd=n=>Math.floor(Math.random()*n);
+function shuffle(a){for(let i=a.length-1;i>0;i--){const j=rnd(i+1);[a[i],a[j]]=[a[j],a[i]];}return a;}
+const nextKind=k=>k<27?Math.floor(k/9)*9+(num(k)+1)%9:k<31?27+(k-27+1)%4:31+(k-31+1)%3;
+const byKind=(a,b)=>a.k-b.k||a.id-b.id;
+function freshWall(){
+  const wall=[];
+  for(let k=0;k<34;k++){const n=R.comp.count[k],rd=R.comp.red[k],gd=R.comp.gold[k];
+    for(let i=0;i<n;i++)wall.push({k,id:uid++,red:i<rd,gold:i>=rd&&i<rd+gd});}
+  return shuffle(wall);
+}
+const tenpaiFee=()=>200*(has('chokin')?2:1);
+const canRedeal=()=>acting()&&S.turn===1&&S.discards===0&&!S.redealt&&!S.hold.some(Boolean);
+function redeal(){
+  if(!canRedeal())return;
+  S.wall.push(...S.hand,...S.drawn); shuffle(S.wall);
+  S.hand=S.wall.splice(-4).sort(byKind); S.drawn=[S.wall.pop()];
+  S.redealt=true; S.sel={zone:'drawn',i:0}; S.win=judge(); render();
+}
+function newRun(){
+  R={wave:0,money:4,charms:[],equip:[],cons:[],lv:{},comp:{count:Array(34).fill(4),red:Array(34).fill(0),gold:Array(34).fill(0)}};
+  if(cfg.aka){R.comp.red[4]=R.comp.red[13]=R.comp.red[22]=1;}
+  startWave();
+}
+function startWave(){
+  G={kyoku:0,score:0,log:[],oya:rnd(4),honba:0,boss:BOSSES[rnd(BOSSES.length)].id,target:TARGETS[R.wave]};
+  startKyoku();
+  const b=BOSSES.find(x=>x.id===G.boss);
+  sheet(`<h2>${WIND[R.wave]}場<span class="pts">目標 ${G.target.toLocaleString()}点</span></h2>
+    <div class="yakulist"><span>親番</span><span>${WIND[R.wave]}${G.oya+1}局</span><span>オーラスのボス</span><span>${b.name}</span></div>
+    <p class="note">${WIND[R.wave]}4局は「${b.name}」：${b.desc}。4局の合計で目標点を超えると次の場へ進めます。</p>
+    <button class="btn win" id="bCont" type="button">${WIND[R.wave]}1局を始める</button>`);
+  $('bCont').onclick=close;
+}
+const isOya=()=>G.kyoku===G.oya;
+function finalize(w){
+  if(!w)return w;
+  let pts=w.pts; const yaku=[...w.yaku];
+  const ln=w.label.includes('役満')?null:limitName(w.han||0); if(ln)yaku.push([ln,pts.toLocaleString()+'点']);
+  let m=1; w.yaku.forEach(([n])=>{const lv=R.lv[n]||0; if(lv)m*=1.5**lv;});
+  if(m>1){pts=Math.round(pts*m/100)*100;yaku.push(['役レベル','×'+(+m.toFixed(2))]);}
+  if(w.noyaku&&has('yasude')){pts*=4;yaku.push(['安手の美学','×4']);}
+  if(isOya()){const om=has('oyaji')?2:1.5;pts=Math.ceil(pts*om/100)*100;yaku.push(['親','×'+om]);}
+  if(S.riichi&&S.turn>S.riichiTurn){const n=S.turn-S.riichiTurn,b=n*100*(has('bakuchi')?2:1);pts+=b;yaku.push([`リーチ後${n}巡`,'+'+b]);}
+  if(G.honba){const b=G.honba*100*(has('isuwari')?3:1);pts+=b;yaku.push([G.honba+'本場','+'+b]);}
+  return{...w,pts,yaku};
+}
+function startKyoku(){
+  const boss=G.kyoku===3?G.boss:null;
+  const wall=freshWall();
+  S={wall,hand:[],drawn:[],river:[],turn:0,discards:0,redealt:false,riichi:false,riichiTurn:0,stick:0,ura:[],sel:null,win:null,over:false,waits:[],peek:false,
+     boss,bakaze:27+R.wave,jk:new Set(),inds:[],doras:[],
+     T:cfg.turns+(eq('turns')?2:0)-(boss==='short'?4:0),
+     N:boss==='fog'?0:cfg.next+(eq('next')?1:0)};
+  S.hold=Array(boss==='seal'?0:cfg.hold+(eq('hold')?1:0)).fill(null);
+  for(let i=0;i<(eq('dora2')?2:1);i++){const ind=wall.pop();S.inds.push(ind);S.doras.push(nextKind(ind.k));}
+  if(eq('joker'))S.jk=new Set(S.doras);
+  S.seat=27+(((G.oya-G.kyoku)%4)+4)%4;
+  S.hand=wall.splice(-4).sort(byKind);
+  draw();
+}
+function allTiles(){return[...S.hand,...S.drawn,...S.hold.filter(Boolean)];}
+function special(w,name){
+  const prev=w.label.includes('役満')?w.pts/8000:0;
+  const n=prev+1;
+  return{...w,pts:8000*n,yaku:[[name,'役満'],...(prev?w.yaku:[])],label:n>1?`${n}倍役満`:'役満'};
+}
+function judge(){
+  let w=bestWin(allTiles(),new Set(S.hold.filter(Boolean).map(t=>t.id)));
+  if(w){const ex=[];
+    if(S.riichi)ex.push(['リーチ',1]);
+    if(S.riichi&&has('ippatsuya')&&S.turn===S.riichiTurn+1)ex.push(['一発屋',2]);
+    if(has('hayazashi')&&S.turn<=6)ex.push(['早指し',1]);
+    if(cfg.haitei&&S.turn===S.T)ex.push(['海底',1]);
+    w=addHan(w,ex);}
+  if(w&&S.turn===1)w=special(w,'天和');
+  else if(w&&S.turn===2&&S.discards===0)w=special(w,'地和');
+  return w;
+}
+function draw(){
+  if(S.turn>=S.T||!S.wall.length){ryukyoku();return;}
+  S.turn++;
+  S.drawn.push(S.wall.pop());
+  S.sel={zone:'drawn',i:0};
+  S.win=judge();
+  render();
+}
+function afterAction(){
+  S.sel=null;
+  while(S.hand.length<4&&S.drawn.length)S.hand.push(S.drawn.shift());
+  S.hand.sort(byKind);
+  if(S.drawn.length){S.sel={zone:'drawn',i:0};S.win=judge();render();return;}
+  S.waits=waitsFor([...S.hand,...S.hold.filter(Boolean)]);
+  if(S.turn>=S.T){render();setTimeout(ryukyoku,250);return;}
+  draw();
+}
+function removeSel(){const s=S.sel;
+  return s.zone==='drawn'?S.drawn.splice(s.i,1)[0]:S.hand.splice(s.i,1)[0];}
+const acting=()=>!!S&&S.drawn.length>0&&!S.over;
+function doDiscard(){ if(!acting()||!S.sel)return;
+  if(S.sel.zone==='hold'){const i=S.sel.i;S.river.push(S.hold[i]);S.hold[i]=S.drawn.shift();}
+  else S.river.push(removeSel());
+  S.discards++; afterAction(); }
+function doHold(slot){ if(!acting()||!S.sel||S.sel.zone==='hold')return;
+  const i=slot??S.hold.indexOf(null); if(i<0||S.hold[i])return;
+  S.hold[i]=removeSel(); afterAction(); }
+function selTile(){const s=S.sel;return s.zone==='hand'?S.hand[s.i]:s.zone==='drawn'?S.drawn[s.i]:S.hold[s.i];}
+function riichiWaits(){
+  if(!acting()||S.riichi||!S.sel)return false;
+  const t=selTile(); const rest=allTiles().filter(x=>x!==t);
+  const w=waitsFor(rest); return w===null||w.length>0;
+}
+function doRiichi(){
+  if(!riichiWaits())return;
+  const cost=has('bakuchi')?300:100;
+  S.riichi=true; S.riichiTurn=S.turn; S.stick=cost; G.score-=cost;
+  doDiscard();
+}
+function shugi(w){
+  let g=w.label.includes('役満')?6:2+Math.min(4,Math.floor((w.han||0)/2));
+  const used=new Set(w.ids); g+=allTiles().filter(t=>used.has(t.id)&&t.gold).length*2;
+  return g;
+}
+function doWin(){ if(!S.win||!acting())return; S.over=true;
+  let w=S.win;
+  if(S.riichi){S.ura=S.wall.slice(0,has('ura2')?2:1);let n=0;S.ura.forEach(t=>{const uk=nextKind(t.k);n+=w.kinds.filter(k=>k===uk).length;});if(n)w=addHan(w,[['裏ドラ',n]]);}
+  w=finalize(w);
+  render(); showWin(w); }
+function settleWin(w,renchan){
+  G.score+=w.pts+S.stick;
+  R.money+=shugi(w);
+  G.log.push({k:G.kyoku,h:G.honba,label:w.yaku.filter(y=>!['親','役レベル','安手の美学'].includes(y[0])&&!/本場$|^リーチ後/.test(y[0])).map(y=>y[0]).join('・')+(isOya()?'（親）':''),pts:w.pts});
+  if(renchan){G.honba++;openShop(startKyoku);}
+  else{G.honba=0; if(G.kyoku>=3)nextKyoku(); else openShop(nextKyoku);}
+}
+function nextKyoku(){ G.kyoku++; if(G.kyoku>=4)waveEnd(); else startKyoku(); }
+
+/* ---------- 描画 ---------- */
+const $=id=>document.getElementById(id);
+let riverOpen=false;
+function remaining(k){
+  const seen=[...S.hand,...S.drawn,...S.hold.filter(Boolean),...S.river,...S.inds];
+  return Math.max(0,cap(k)-seen.filter(t=>t.k===k).length);
+}
+function render(){
+  if(!S)return;
+  const kk=Math.min(G.kyoku,3), W=WIND[R.wave];
+  $('track').innerHTML=[0,1,2,3].map(i=>`<span class="seg${i===G.kyoku?' cur':''}${i<G.kyoku?' done':''}">${W}${i+1}${i===G.oya?'<span class="oya">親</span>':''}${i===3?'<span class="boss">ボス</span>':''}</span>`).join('');
+  $('sRound').textContent=`${W}${kk+1}局${G.honba?' '+G.honba+'本場':''}${G.kyoku===G.oya?'（親）':''}`;
+  const left=S.T-S.turn;
+  $('sTurn').className='tn'+(left===0?' last':left<=3?' low':'');
+  $('sTurn').innerHTML=left===0?`<b>最終巡</b>`:`巡 <b>${S.turn}</b>/${S.T}・残り${left}`;
+  $('sScore').innerHTML=`${G.score.toLocaleString()}<small> / ${G.target.toLocaleString()}</small>`;
+  $('sBar').style.width=Math.max(0,Math.min(100,G.score/G.target*100))+'%';
+  let meta='';
+  if(S.riichi)meta+=`<span class="badge">リーチ</span>`;
+  if(S.boss){const b=BOSSES.find(x=>x.id===S.boss);meta+=`<span class="c boss" title="${b.desc}">ボス <b>${b.name}</b></span>`;}
+  S.inds.forEach((ind,i)=>{meta+=`<span class="c">${tileHTML(ind,{size:'sm',plain:true})}→${tileHTML({k:S.doras[i]},{size:'sm'})}<b>${eq('joker')?'万能牌':'ドラ'}</b></span>`;});
+  meta+=`<span class="c">自風 ${tileHTML({k:S.seat},{size:'sm',plain:true})}</span>`;
+  $('meta').innerHTML=meta;
+  let inv=`<span class="c money">祝儀 <b>${R.money}</b></span><button class="c invb" type="button" data-act="inv">お守り <b>${R.charms.length}/5</b></button>`;
+  R.cons.forEach((c,i)=>{const d=CONS.find(x=>x.id===c);inv+=`<button class="c use" type="button" data-act="use" data-i="${i}"${consUsable(c)?'':' disabled'}>${d.name}</button>`;});
+  $('inv').innerHTML=inv;
+  const rv=$('river'); rv.classList.toggle('open',riverOpen);
+  rv.innerHTML=`<span class="rl">河 ${S.river.length}</span><span class="rt">${S.river.length?S.river.map(t=>tileHTML(t,{size:'xs'})).join(''):'<span class="empty">まだ捨て牌はありません</span>'}</span>`;
+  const sel=S.sel, act=acting();
+  const holdSel=sel&&sel.zone!=='hold'&&act&&!S.riichi;
+  const used=S.win&&act?new Set(S.win.ids):new Set();
+  let hold=S.hold.map((t,i)=>t?tileHTML(t,{btn:1,zone:'hold',i,size:'md',sel:sel&&sel.zone==='hold'&&sel.i===i,used:used.has(t.id)}):`<button class="slot${holdSel?' target':''}" type="button" data-zone="slot" data-i="${i}" aria-label="空きの保留枠">空き</button>`).join('');
+  const nn=S.riichi?0:(S.peek?5:S.N);
+  const nx=nn?S.wall.slice(-nn):[];
+  const nsz=nn>3?'sm':'md';
+  const nextHTML=nx.length?`<span class="nextin${nn>3?' many':''}" aria-label="次にツモる牌（左から順）"><span class="nl">次</span>${nx.slice().reverse().map(t=>tileHTML(t,{size:nsz})).join('<span class="arr" aria-hidden="true">←</span>')}</span>`:'';
+  $('hold').innerHTML=(S.hold.length?`<span class="hg"><span class="hl">保留</span>${hold}</span>`:'')+nextHTML;
+  $('hand').innerHTML=S.hand.map((t,i)=>tileHTML(t,{btn:1,zone:'hand',i,sel:sel&&sel.zone==='hand'&&sel.i===i,used:used.has(t.id)})).join('')+(S.drawn.length?'<span class="gap"></span>'+S.drawn.map((t,i)=>tileHTML(t,{btn:1,zone:'drawn',i,sel:sel&&sel.zone==='drawn'&&sel.i===i,extra:'drawn',used:used.has(t.id)})).join(''):'');
+  const co=$('callout'); co.className='callout';
+  const waitsHTML=S.waits&&S.waits.length?`<div class="waits">${S.waits.map(k=>{const r=remaining(k);return`<span class="w${r?'':' dead'}">${tileHTML({k},{size:'sm'})}残${r}</span>`;}).join('')}</div>`:'';
+  if(S.win&&act){
+    const fw=finalize(S.win); co.classList.add('win');
+    co.innerHTML=`<span class="msg">和了れます</span><span class="yk">${S.win.yaku.map(y=>y[0]).join('・')}</span><span class="pt">${fw.pts.toLocaleString()}点</span>`;
+  } else if(S.riichi){
+    co.innerHTML=`<span class="msg">リーチ中：ツモ切りのみ。ネクストは見えません</span>${waitsHTML}`;
+  } else if(act&&sel&&sel.zone==='hold'){
+    co.innerHTML=`<span class="msg">もう一度タップで捨てる。空いた枠にツモ牌が入ります</span>${waitsHTML?'<span class="msg">待ち</span>'+waitsHTML:''}`;
+  } else if(act&&sel){
+    co.innerHTML=`<span class="msg">もう一度タップで捨てる${S.hold.includes(null)?'／空き枠をタップで保留':''}</span>${waitsHTML?'<span class="msg">待ち</span>'+waitsHTML:''}`;
+  } else co.innerHTML=waitsHTML?'<span class="msg">待ち</span>'+waitsHTML:'';
+  const b=[];
+  if(canRedeal())b.push(`<button class="btn" type="button" data-act="redeal">配牌を引き直す</button>`);
+  if(act&&!S.riichi&&sel&&sel.zone!=='hold'&&S.hold.includes(null))b.push(`<button class="btn" type="button" data-act="hold">保留</button>`);
+  if(riichiWaits())b.push(`<button class="btn riichi" type="button" data-act="riichi">リーチ</button>`);
+  if(act&&S.win)b.push(`<button class="btn win wide" type="button" data-act="win">和了 ${finalize(S.win).pts.toLocaleString()}</button>`);
+  $('actions').innerHTML=b.length?b.join(''):`<span class="idle">${act?'捨てる牌を選んでください':''}</span>`;
+}
+function sheet(html,dismiss){$('layer').innerHTML=`<div class="veil" id="veil"${dismiss?' data-dismiss="1"':''}><div class="sheet" role="dialog" aria-modal="true">${html}</div></div>`;}
+function close(){$('layer').innerHTML='';}
+function showWin(w){
+  const used=new Set(w.ids);
+  const tiles=allTiles().filter(t=>used.has(t.id)).sort(byKind);
+  const g=shugi(w);
+  const last=G.kyoku>=3;
+  sheet(`<h2>和了<span class="pts">+${w.pts.toLocaleString()}点</span></h2>
+    <div class="tilesline">${tiles.map(t=>tileHTML(t,{size:'md'})).join('')}</div>
+    <div class="yakulist">${w.yaku.map(([n,v])=>`<span>${n}</span><span>${v}</span>`).join('')}<span>祝儀</span><span>+${g}</span></div>
+    ${S.ura.length?`<p class="note">裏ドラ表示 ${S.ura.map(t=>tileHTML(t,{size:'sm',plain:true})+' → '+tileName(nextKind(t.k))).join('、')}。リーチ棒${S.stick}点は戻ります。</p>`:''}
+    ${isOya()?`<p class="note">親の和了です。連荘すると${G.honba+1}本場になります。流局すると親は流れ、ノーテンなら罰符${(G.honba+2)*300}点です。</p>
+    <div class="actions"><button class="btn" id="bStop" type="button">和了やめ</button><button class="btn win" id="bCont" type="button">連荘する</button></div>`
+    :`<button class="btn win" id="bCont" type="button">${last?'場の結果へ':'ショップへ'}</button>`}`);
+  $('bCont').onclick=()=>{close();settleWin(w,isOya());};
+  if($('bStop'))$('bStop').onclick=()=>{close();settleWin(w,false);};
+}
+function ryukyoku(){
+  if(S.over)return; S.over=true; S.drawn=[]; render();
+  const tenpai=S.waits===null||(S.waits&&S.waits.length>0);
+  const oya=isOya();
+  const fee=tenpai?tenpaiFee():0;
+  const pen=oya&&!tenpai?300*(G.honba+1):0;
+  G.score+=fee-pen; if(tenpai)R.money+=1;
+  G.log.push({k:G.kyoku,h:G.honba,label:(tenpai?'流局（聴牌）':'流局')+(oya?'（親）':'')+(S.stick?'・リーチ棒没収':''),pts:fee-pen-S.stick});
+  const last=G.kyoku>=3;
+  let msg;
+  if(oya&&tenpai)msg='親の聴牌です。聴牌では連荘しないので、聴牌料を受け取って親が流れます。';
+  else if(oya)msg=`親のノーテン流局です。罰符${pen}点を払い、親が流れます。`;
+  else msg=tenpai?'聴牌していたので、聴牌料と祝儀1が入ります。':'ノーテンのため0点です。';
+  render();
+  sheet(`<h2>流局<span class="pts">${fee-pen>0?'+':fee-pen<0?'−':'±'}${Math.abs(fee-pen)}点</span></h2>
+    <p class="note">${msg}</p>
+    <button class="btn win" id="bCont" type="button">${last?'場の結果へ':'ショップへ'}</button>`);
+  $('bCont').onclick=()=>{close();G.honba=0; if(last)nextKyoku(); else openShop(nextKyoku);};
+}
+function waveEnd(){
+  const ok=G.score>=G.target;
+  const logHTML=`<div class="yakulist">${G.log.map(x=>`<span>${WIND[R.wave]}${x.k+1}局${x.h?' '+x.h+'本場':''}　${x.label}</span><span>${x.pts.toLocaleString()}</span>`).join('')}</div>`;
+  if(!ok){
+    sheet(`<h2>ラン終了<span class="pts">${G.score.toLocaleString()}点</span></h2>
+      <p class="note">${WIND[R.wave]}場の目標 ${G.target.toLocaleString()}点に届きませんでした。</p>${logHTML}
+      <button class="btn win" id="bAgain" type="button">新しいラン</button>`);
+    $('bAgain').onclick=()=>{close();newRun();};return;
+  }
+  const interest=Math.min(5,Math.floor(R.money/5));
+  const over=Math.min(3,Math.floor((G.score/G.target-1)/0.5));
+  const bonus=3+interest+over;
+  R.money+=bonus;
+  if(R.wave>=3){
+    sheet(`<h2>全場クリア<span class="pts">${G.score.toLocaleString()}点</span></h2>
+      <p class="note">東南西北の4場をすべて突破しました。</p>${logHTML}
+      <button class="btn win" id="bAgain" type="button">新しいラン</button>`);
+    $('bAgain').onclick=()=>{close();newRun();};return;
+  }
+  sheet(`<h2>${WIND[R.wave]}場 突破<span class="pts">${G.score.toLocaleString()}点</span></h2>
+    ${logHTML}
+    <div class="yakulist"><span>突破の祝儀</span><span>+3</span><span>利子（5ごとに1、最大5）</span><span>+${interest}</span><span>目標超過</span><span>+${over}</span></div>
+    <button class="btn win" id="bCont" type="button">ショップへ</button>`);
+  $('bCont').onclick=()=>{close();openShop(()=>{R.wave++;startWave();});};
+}
+
+/* ---------- ショップ ---------- */
+function ownedOrOffered(type,id){
+  if(type==='charm'&&R.charms.includes(id))return true;
+  if(type==='equip'&&R.equip.includes(id))return true;
+  return SH&&SH.offers.some(o=>o.type===type&&o.id===id&&!o.sold);
+}
+function genOffer(){
+  for(let tries=0;tries<50;tries++){
+    const r=Math.random();
+    let type=r<.4?'charm':r<.6?'cons':r<.75?'mod':r<.9?'scroll':'equip';
+    let item;
+    if(type==='charm')item=CHARMS[rnd(CHARMS.length)];
+    else if(type==='equip'){item=EQUIP[rnd(EQUIP.length)]; if(item.req&&!R.equip.includes(item.req))continue;}
+    else if(type==='cons')item=CONS[rnd(CONS.length)];
+    else if(type==='mod')item=MODS[rnd(MODS.length)];
+    else {const y=SCROLL_YAKU[rnd(SCROLL_YAKU.length)];const lv=R.lv[y]||0;item={id:y,name:`${y} Lv${lv+1}`,desc:`${y}を含む和了の点数×1.5（重ねがけ可）`};}
+    if(ownedOrOffered(type,item.id))continue;
+    return{type,id:item.id,name:item.name,desc:item.desc,price:item.price||PRICE[type],sold:false};
+  }
+  return{type:'cons',...CONS[0],price:3,sold:false};
+}
+function openShop(next){
+  SH={offers:[],next};
+  for(let i=0;i<3;i++)SH.offers.push(genOffer());
+  render(); renderShop();
+}
+function renderShop(msg){
+  const cards=SH.offers.map((o,i)=>`<div class="card${o.sold?' sold':''}"><div class="ct"><span class="ty">${TYPE_LABEL[o.type]}</span><b>${o.name}</b></div><p>${o.desc}</p>
+    <button class="btn${o.sold?'':' buy'}" type="button" data-buy="${i}"${o.sold||R.money<o.price?' disabled':''}>${o.sold?'購入済み':'買う '+o.price}</button></div>`).join('');
+  const charms=R.charms.map((id,i)=>{const c=CHARMS.find(x=>x.id===id);return`<span class="own"><b>${c.name}</b><small>${c.desc}</small><button class="ghost" type="button" data-sell="${i}">売る +2</button></span>`;}).join('');
+  sheet(`<h2>ショップ<span class="pts">祝儀 ${R.money}</span></h2>
+    ${msg?`<p class="note warn">${msg}</p>`:''}
+    <div class="cards">${cards}</div>
+    <div class="actions"><button class="btn" id="bReroll" type="button"${R.money<2?' disabled':''}>品替え 2</button><button class="btn win" id="bNext" type="button">次へ</button></div>
+    <p class="note">お守り ${R.charms.length}/5 ・ 消耗品 ${R.cons.length}/2 ・ 設備 ${R.equip.map(e=>EQUIP.find(x=>x.id===e).name).join('、')||'なし'}</p>
+    ${charms?`<div class="owns">${charms}</div>`:''}`);
+  $('layer').querySelectorAll('[data-buy]').forEach(b=>b.onclick=()=>buy(+b.dataset.buy));
+  $('layer').querySelectorAll('[data-sell]').forEach(b=>b.onclick=()=>{R.charms.splice(+b.dataset.sell,1);R.money+=2;renderShop();});
+  $('bReroll').onclick=()=>{if(R.money<2)return;R.money-=2;SH.offers=SH.offers.map(()=>({sold:true}));SH.offers=[0,1,2].map(()=>genOffer());renderShop();};
+  $('bNext').onclick=()=>{close();const n=SH.next;SH=null;n();};
+}
+function buy(i){
+  const o=SH.offers[i]; if(!o||o.sold||R.money<o.price)return;
+  if(o.type==='charm'&&R.charms.length>=5){renderShop('お守りは5つまでです。どれかを売ってから買ってください。');return;}
+  if(o.type==='cons'&&R.cons.length>=2){renderShop('消耗品は2つまでしか持てません。');return;}
+  if(o.type==='mod'){pickTile(o,i);return;}
+  R.money-=o.price;o.sold=true;
+  if(o.type==='charm')R.charms.push(o.id);
+  else if(o.type==='equip')R.equip.push(o.id);
+  else if(o.type==='cons')R.cons.push(o.id);
+  else if(o.type==='scroll')R.lv[o.id]=(R.lv[o.id]||0)+1;
+  renderShop();
+}
+function pickTile(o,i){
+  const ok=k=>o.id==='nuki'?R.comp.count[k]>0:o.id==='utsushi'?R.comp.count[k]<5&&R.comp.count[k]>0:o.id==='shu'?R.comp.red[k]<R.comp.count[k]:R.comp.red[k]+R.comp.gold[k]<R.comp.count[k];
+  const grid=[...Array(34).keys()].map(k=>`<button class="pick" type="button" data-k="${k}"${ok(k)?'':' disabled'}>${tileHTML({k,red:R.comp.red[k]>0&&o.id==='shu'},{size:'sm',plain:true})}<small>${R.comp.count[k]}枚${R.comp.red[k]?'・赤'+R.comp.red[k]:''}${R.comp.gold[k]?'・金'+R.comp.gold[k]:''}</small></button>`).join('');
+  sheet(`<h2>${o.name}</h2><p class="note">${o.desc}。対象の牌を選んでください（祝儀${o.price}）。</p><div class="picker">${grid}</div>
+    <button class="btn" id="bBack" type="button">やめる</button>`);
+  $('bBack').onclick=()=>renderShop();
+  $('layer').querySelectorAll('[data-k]').forEach(b=>b.onclick=()=>{
+    const k=+b.dataset.k, c=R.comp;
+    if(o.id==='shu')c.red[k]=Math.min(c.count[k],c.red[k]+2);
+    else if(o.id==='kin')c.gold[k]=Math.min(c.count[k]-c.red[k],c.gold[k]+1);
+    else if(o.id==='nuki'){c.count[k]=0;c.red[k]=0;c.gold[k]=0;}
+    else if(o.id==='utsushi')c.count[k]=5;
+    R.money-=o.price;o.sold=true;renderShop();
+  });
+}
+
+/* ---------- 消耗品 ---------- */
+function consUsable(id){
+  if(!acting()||S.riichi)return false;
+  if(id==='hiroi')return S.river.length>0;
+  if(id==='nozoki')return !S.peek;
+  return true;
+}
+function useCons(i){
+  const id=R.cons[i]; if(!consUsable(id))return;
+  if(id==='tsumo'){const t=S.drawn.shift();S.wall.unshift(t);S.drawn.unshift(S.wall.pop());}
+  else if(id==='hiroi'){S.drawn.push(S.river.pop());}
+  else if(id==='nozoki'){S.peek=true;}
+  else if(id==='irekae'){S.wall.push(...S.hand,...S.drawn);shuffle(S.wall);S.hand=S.wall.splice(-4).sort(byKind);S.drawn=[S.wall.pop()];}
+  R.cons.splice(i,1);
+  S.sel={zone:'drawn',i:0};S.win=judge();render();
+}
+function showInv(){
+  const ch=R.charms.map(id=>{const c=CHARMS.find(x=>x.id===id);return`<span>${c.name}</span><span class="h">${c.axis}</span><span class="c">${c.desc}</span>`;}).join('');
+  const eqs=R.equip.map(id=>{const c=EQUIP.find(x=>x.id===id);return`<span>${c.name}</span><span class="h">設備</span><span class="c">${c.desc}</span>`;}).join('');
+  const lv=Object.entries(R.lv).map(([y,l])=>`<span>${y}</span><span class="h">Lv${l}</span><span class="c">点数×${+(1.5**l).toFixed(2)}</span>`).join('');
+  const mods=[...Array(34).keys()].filter(k=>R.comp.count[k]!==4||R.comp.gold[k]||(R.comp.red[k]&&![4,13,22].includes(k))||R.comp.red[k]>1).map(k=>`${tileName(k)} ${R.comp.count[k]}枚${R.comp.red[k]?'・赤'+R.comp.red[k]:''}${R.comp.gold[k]?'・金'+R.comp.gold[k]:''}`).join('、');
+  sheet(`<h2>持ち物<span class="pts">祝儀 ${R.money}</span></h2>
+    <div class="ref">${ch||'<span class="c">お守りはまだありません</span>'}${eqs}${lv}</div>
+    ${mods?`<p class="note">牌山の改造：${mods}</p>`:''}
+    <button class="btn" id="bCancel" type="button">閉じる</button>`,true);
+  $('bCancel').onclick=close;
+}
+function showSettings(){
+  const o=(v,list,f=x=>x)=>list.map(x=>`<option value="${x}"${x===v?' selected':''}>${f(x)}</option>`).join('');
+  sheet(`<h2>ルール設定</h2>
+    <div class="settings">
+      <label for="cTurns">巡数</label><select id="cTurns">${o(cfg.turns,[8,12,16,20],x=>x+'巡')}</select>
+      <label for="cHold">保留枠</label><select id="cHold">${o(cfg.hold,[0,1,2,3],x=>x+'枠')}</select>
+      <label for="cNext">ネクスト</label><select id="cNext">${o(cfg.next,[0,1,2],x=>x?x+'枚先まで見える':'見えない')}</select>
+      <label for="cAka">赤牌</label><select id="cAka">${o(cfg.aka?1:0,[1,0],x=>x?'あり（各色の5に1枚、1枚1翻）':'なし')}</select>
+      <label for="cHaitei">海底</label><select id="cHaitei">${o(cfg.haitei?1:0,[1,0],x=>x?'あり（最終巡のツモ和了で1翻）':'なし')}</select>
+    </div>
+    <p class="note">基本ルールの調整用です。適用すると新しいランを始めます。場の目標点は東1,000・南2,000・西4,000・北8,000点です。</p>
+    <div class="actions"><button class="btn" id="bMoney" type="button">テスト用：祝儀＋20</button><button class="btn win" id="bApply" type="button">適用して新しいラン</button></div>
+    <button class="btn" id="bCancel" type="button">閉じる</button>`,true);
+  $('bCancel').onclick=close;
+  $('bMoney').onclick=()=>{R.money+=20;close();render();};
+  $('bApply').onclick=()=>{cfg.turns=+$('cTurns').value;cfg.hold=+$('cHold').value;cfg.next=+$('cNext').value;cfg.aka=$('cAka').value==='1';cfg.haitei=$('cHaitei').value==='1';try{localStorage.setItem('puchi-cfg-v6',JSON.stringify(cfg))}catch(e){}close();newRun();};
+}
+function showRef(){
+  const rows=[['リーチ','1翻','聴牌で宣言（100点）。以後ツモ切りのみ、ネクストが隠れる。裏ドラあり。宣言から和了までの巡数×100点のボーナス'],['海底','1翻','最終巡のツモで和了（設定）'],['ドラ','1翻/枚','ドラ表示の次の牌を使って和了'],['赤','1翻/枚','赤牌を使って和了'],['門前','1翻','保留牌を使わずに和了（役満以外と複合）'],['プチ国士','1翻','三元牌・風牌・1牌・9牌を1枚ずつ＋そのどれかの対子'],['断么九','1翻','么九牌を含まない'],['役牌','1翻〜','三元牌・場風・自風の対子か刻子。親の局の場風はダブ東などで2翻'],['混一色','2翻','数牌1色＋字牌'],['プチ三色','2翻','同じ数字の3色＋対子'],['プチ一通','2翻','同色の5連（12345など）'],['プチ小四喜','2翻','風牌3種＋対子'],['三対子','2翻','保留を含めた6枚で対子3組（門前とは両立しない）'],['清一色','3翻','数牌1色のみ'],['プチ四暗刻','3翻','刻子＋対子'],['プチ小三元','5翻','白發中＋対子'],['混老頭','役満','么九牌のみで刻子を含む'],['字一色','役満','字牌のみ'],['緑一色','役満','2・3・4・6・8索と發のみ'],['プチ大四喜','役満','東南西北＋三元牌1枚'],['プチ槓','役満','同じ牌4枚＋何か1枚'],['天和','役満','1巡目のツモで和了'],['地和','役満','一度も捨てずに2巡目で和了（保留は可）'],['プチ大三元','ダブル役満','三元牌の刻子＋残りの三元牌1枚ずつ']];
+  sheet(`<h2>役表</h2><div class="ref">${rows.map(([n,h,c])=>`<span>${n}</span><span class="h">${h}</span><span class="c">${c}</span>`).join('')}</div>
+    <p class="note">和了形は対子＋面子（順子・刻子）。役なしでも100点で和了れます。点数は100×2<sup>翻</sup>（4翻1,600点まで）、5翻満貫2,000、6〜7翻跳満3,000、8〜10翻倍満4,000、11〜12翻三倍満6,000、13翻以上は数え役満8,000点。役満は8,000点。1場は4局で、4局の合計が目標を超えると次の場へ。親の和了は1.5倍、和了後に連荘か和了やめを選べます。流局時に聴牌なら聴牌料200点。局の合間にショップで祝儀を使えます。</p>
+    <button class="btn" id="bCancel" type="button">閉じる</button>`,true);
+  $('bCancel').onclick=close;
+}
+
+/* ---------- 入力 ---------- */
+$('app').addEventListener('click',e=>{
+  const a=e.target.closest('[data-act]');
+  if(a){const k=a.dataset.act;
+    if(k==='river'){riverOpen=!riverOpen;render();return;}
+    if(k==='inv'){showInv();return;}
+    if(k==='use'){useCons(+a.dataset.i);return;}
+    if(k==='redeal')redeal(); else if(k==='hold')doHold(); else if(k==='riichi')doRiichi(); else if(k==='win')doWin();
+    return;}
+  const el=e.target.closest('[data-zone]'); if(!el||!acting())return;
+  const zone=el.dataset.zone,i=+el.dataset.i,sel=S.sel;
+  if(S.riichi&&zone!=='drawn')return;
+  if(zone==='slot'){ if(sel&&sel.zone!=='hold')doHold(i); return; }
+  if(sel&&sel.zone===zone&&sel.i===i){doDiscard();return;}
+  S.sel={zone,i};render();
+});
+$('btnSet').onclick=showSettings;
+$('btnRef').onclick=showRef;
+$('layer').addEventListener('click',e=>{if(e.target.id==='veil'&&e.target.dataset.dismiss)close();});
+try{const c=JSON.parse(localStorage.getItem('puchi-cfg-v6')||'null');if(c)Object.assign(cfg,c);}catch(e){}
+newRun();
+})();
+</script>

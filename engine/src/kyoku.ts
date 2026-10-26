@@ -1,0 +1,359 @@
+/**
+ * 1 局の進行。仕様は docs/SPEC.md §3.2「局の流れ」。
+ *
+ * 状態は書き換えず、step() が新しい状態を返す。乱数の状態も KyokuState に入っているので、
+ * 同じ初期状態に同じ操作を順に与えれば同じ結果になる（操作ログの再生）。
+ */
+import { addHan, addYakuman, yakuEntry, type YakuEntry } from './hand.js';
+import type { ConsumableId, Modifiers } from './items.js';
+import { shuffle } from './rng.js';
+import { basePoints, finalizeScore, type FinalScore } from './score.js';
+import { HAKU, KIND_COUNT, byKind, doraOf, type Kind, type Tile } from './tiles.js';
+import { bestWin, waits, type Win, type WinContext } from './win.js';
+
+/** 牌山の構成。牌の改造（朱塗り・金箔・抜き取り・写し）で変わり、ランの間ずっと残る */
+export interface Composition {
+  /** 種類ごとの枚数（0〜5） */
+  count: number[];
+  /** 種類ごとの赤牌の枚数 */
+  red: number[];
+  /** 種類ごとの金牌の枚数 */
+  gold: number[];
+}
+
+export function defaultComposition(redFives: boolean): Composition {
+  const red = Array<number>(KIND_COUNT).fill(0);
+  if (redFives) for (const k of [4, 13, 22]) red[k] = 1;
+  return { count: Array<number>(KIND_COUNT).fill(4), red, gold: Array<number>(KIND_COUNT).fill(0) };
+}
+
+export interface KyokuSetup {
+  rng: number;
+  composition: Composition;
+  mods: Modifiers;
+  /** 場風 */
+  bakaze: Kind;
+  /** 自風 */
+  seat: Kind;
+  dealer: boolean;
+  honba: number;
+  yakuLevels: Readonly<Record<string, number>>;
+}
+
+export type Zone = 'hand' | 'drawn' | 'hold';
+
+export type KyokuAction =
+  | { type: 'discard'; zone: Zone; index: number }
+  | { type: 'hold'; zone: 'hand' | 'drawn'; index: number; slot?: number }
+  | { type: 'riichi'; zone: Zone; index: number }
+  | { type: 'tsumo' }
+  | { type: 'redeal' }
+  | { type: 'consumable'; id: ConsumableId };
+
+export type KyokuResult =
+  | {
+      type: 'win';
+      win: Win;
+      score: FinalScore;
+      /** 裏ドラ表示牌（リーチしていなければ空） */
+      ura: Tile[];
+      /** 和了に使った金牌の枚数 */
+      gold: number;
+    }
+  | {
+      type: 'draw';
+      tenpai: boolean;
+      /** 聴牌料 */
+      fee: number;
+      /** 親のノーテン罰符 */
+      penalty: number;
+      /** 没収されたリーチ棒 */
+      stickLost: number;
+    };
+
+export interface KyokuState {
+  rng: number;
+  wall: Tile[];
+  hand: Tile[];
+  drawn: Tile[];
+  hold: (Tile | null)[];
+  river: Tile[];
+  indicators: Tile[];
+  doraKinds: Kind[];
+  jokerKinds: Kind[];
+  turn: number;
+  discards: number;
+  redealt: boolean;
+  riichi: { turn: number; stick: number } | null;
+  /** 山覗きを使った */
+  peek: boolean;
+  /** 直前の打牌のあとの待ち（null は計算を省いた聴牌） */
+  waits: Kind[] | null;
+  /** 今のツモで和了れる手（和了れなければ null） */
+  win: Win | null;
+  result: KyokuResult | null;
+  setup: Omit<KyokuSetup, 'rng' | 'composition'> & { copies: number[] };
+}
+
+function buildWall(rng: number, comp: Composition): [number, Tile[]] {
+  const tiles: Tile[] = [];
+  let id = 0;
+  for (let k = 0; k < KIND_COUNT; k++) {
+    const n = comp.count[k];
+    const red = comp.red[k];
+    const gold = comp.gold[k];
+    for (let i = 0; i < n; i++) tiles.push({ id: id++, kind: k, red: i < red, gold: i >= red && i < red + gold });
+  }
+  return shuffle(rng, tiles);
+}
+
+export function startKyoku(setup: KyokuSetup): KyokuState {
+  let [rng, wall] = buildWall(setup.rng, setup.composition);
+  const indicators: Tile[] = [];
+  for (let i = 0; i < setup.mods.doraIndicators; i++) indicators.push(wall.pop()!);
+  const doraKinds = indicators.map((t) => doraOf(t.kind));
+  const hand = wall.splice(-4).sort(byKind);
+  const { rng: _rng, composition, ...rest } = setup;
+  void _rng;
+  const state: KyokuState = {
+    rng,
+    wall,
+    hand,
+    drawn: [],
+    hold: Array(setup.mods.holdSlots).fill(null),
+    river: [],
+    indicators,
+    doraKinds,
+    jokerKinds: setup.mods.doraMode === 'normal' ? [] : doraKinds,
+    turn: 0,
+    discards: 0,
+    redealt: false,
+    riichi: null,
+    peek: false,
+    waits: [],
+    win: null,
+    result: null,
+    setup: { ...rest, copies: composition.count.slice() },
+  };
+  return drawNext(state);
+}
+
+export function allTiles(s: KyokuState): Tile[] {
+  return [...s.hand, ...s.drawn, ...(s.hold.filter(Boolean) as Tile[])];
+}
+
+export function isJoker(s: KyokuState, k: Kind): boolean {
+  return s.jokerKinds.includes(k) || (s.setup.mods.hakuJoker && k === HAKU);
+}
+
+export function winContext(s: KyokuState, withBonus: boolean): WinContext {
+  const m = s.setup.mods;
+  return {
+    rules: {
+      bakaze: s.setup.bakaze,
+      seat: s.setup.seat,
+      sameColorManSou: m.sameColorManSou,
+      skipSequences: m.skipSequences,
+      allWindsYakuhai: m.allWindsYakuhai,
+    },
+    isJoker: (k) => isJoker(s, k),
+    copies: (k) => s.setup.copies[k],
+    holdIds: withBonus ? new Set((s.hold.filter(Boolean) as Tile[]).map((t) => t.id)) : undefined,
+    doraKinds: s.doraKinds,
+    doraMode: m.doraMode,
+    menzenHan: m.menzenHan,
+    redHan: m.redHan,
+    noBonus: m.noBonus,
+    shibari: m.shibari,
+    noLimit: m.noLimit,
+  };
+}
+
+/** 今のツモで和了れる手。局の状況で決まる翻（リーチ・海底・天和など）もここで足す */
+function judge(s: KyokuState): Win | null {
+  const w = bestWin(allTiles(s), winContext(s, true));
+  if (!w) return null;
+  const m = s.setup.mods;
+  const extra: YakuEntry[] = [];
+  if (s.riichi) extra.push(yakuEntry('リーチ', 1));
+  if (s.riichi && m.ippatsuHan && s.turn === s.riichi.turn + 1) extra.push(yakuEntry('一発屋', m.ippatsuHan));
+  if (m.earlyWinBonus && s.turn <= 6) extra.push(yakuEntry('早指し', 1));
+  if (m.haitei && s.turn === m.turns) extra.push(yakuEntry('海底', 1));
+  let ev = addHan(w.evaluation, extra);
+  if (s.turn === 1) ev = addYakuman(ev, '天和');
+  else if (s.turn === 2 && s.discards === 0) ev = addYakuman(ev, '地和');
+  return { ...w, evaluation: ev, points: basePoints(ev, m.noLimit) };
+}
+
+function endWithDraw(s: KyokuState): KyokuState {
+  const tenpai = s.waits === null || s.waits.length > 0;
+  const fee = tenpai ? s.setup.mods.tenpaiFee : 0;
+  const penalty = s.setup.dealer && !tenpai ? 300 * (s.setup.honba + 1) : 0;
+  return {
+    ...s,
+    drawn: [],
+    win: null,
+    result: { type: 'draw', tenpai, fee, penalty, stickLost: s.riichi?.stick ?? 0 },
+  };
+}
+
+function drawNext(s: KyokuState): KyokuState {
+  if (s.turn >= s.setup.mods.turns || !s.wall.length) return endWithDraw(s);
+  const wall = s.wall.slice();
+  const tile = wall.pop()!;
+  const next: KyokuState = { ...s, wall, turn: s.turn + 1, drawn: [tile] };
+  return { ...next, win: judge(next) };
+}
+
+/** 打牌や保留のあと。ツモ牌が残っていればもう一度選ばせ、なくなれば待ちを計算して次をツモる */
+function afterAction(s: KyokuState): KyokuState {
+  const hand = s.hand.slice();
+  const drawn = s.drawn.slice();
+  while (hand.length < 4 && drawn.length) hand.push(drawn.shift()!);
+  hand.sort(byKind);
+  let next: KyokuState = { ...s, hand, drawn };
+  if (drawn.length) return { ...next, win: judge(next) };
+  next = { ...next, win: null, waits: waits([...hand, ...(s.hold.filter(Boolean) as Tile[])], winContext(next, false)) };
+  if (next.turn >= next.setup.mods.turns) return endWithDraw(next);
+  return drawNext(next);
+}
+
+function tileAt(s: KyokuState, zone: Zone, index: number): Tile {
+  const t = zone === 'hand' ? s.hand[index] : zone === 'drawn' ? s.drawn[index] : s.hold[index];
+  if (!t) throw new Error(`no tile at ${zone}[${index}]`);
+  return t;
+}
+
+/** 牌を 1 枚手放す。保留牌を捨てたときは、空いた枠にツモ牌が入る */
+function removeTile(s: KyokuState, zone: Zone, index: number): [KyokuState, Tile] {
+  const t = tileAt(s, zone, index);
+  if (zone === 'hand') return [{ ...s, hand: s.hand.filter((_, i) => i !== index) }, t];
+  if (zone === 'drawn') return [{ ...s, drawn: s.drawn.filter((_, i) => i !== index) }, t];
+  const hold = s.hold.slice();
+  const drawn = s.drawn.slice();
+  hold[index] = drawn.shift() ?? null;
+  return [{ ...s, hold, drawn }, t];
+}
+
+export function isActing(s: KyokuState): boolean {
+  return !s.result && s.drawn.length > 0;
+}
+
+export function canRedeal(s: KyokuState): boolean {
+  return isActing(s) && s.turn === 1 && s.discards === 0 && !s.redealt && !s.hold.some(Boolean);
+}
+
+/** その牌を捨ててリーチできるか（捨てたあとに聴牌しているか） */
+export function canRiichi(s: KyokuState, zone: Zone, index: number): boolean {
+  if (!isActing(s) || s.riichi) return false;
+  const t = tileAt(s, zone, index);
+  const rest = allTiles(s).filter((x) => x !== t);
+  const w = waits(rest, winContext(s, false));
+  return w === null || w.length > 0;
+}
+
+export function canUseConsumable(s: KyokuState, id: ConsumableId): boolean {
+  if (!isActing(s) || s.riichi) return false;
+  if (id === 'hiroi') return s.river.length > 0;
+  if (id === 'nozoki') return !s.peek;
+  return true;
+}
+
+/** ネクストに見える牌（左が次のツモ） */
+export function visibleNext(s: KyokuState): Tile[] {
+  if (s.riichi) return [];
+  const n = s.peek ? 5 : s.setup.mods.next;
+  return n ? s.wall.slice(-n).reverse() : [];
+}
+
+export function step(s: KyokuState, action: KyokuAction): KyokuState {
+  if (s.result) throw new Error('kyoku has ended');
+  if (!isActing(s)) throw new Error('not waiting for an action');
+  switch (action.type) {
+    case 'discard': {
+      if (s.riichi && action.zone !== 'drawn') throw new Error('riichi: only the drawn tile can be discarded');
+      const [next, t] = removeTile(s, action.zone, action.index);
+      return afterAction({ ...next, river: [...s.river, t], discards: s.discards + 1 });
+    }
+    case 'hold': {
+      if (s.riichi) throw new Error('riichi: cannot hold');
+      const slot = action.slot ?? s.hold.indexOf(null);
+      if (slot < 0 || s.hold[slot]) throw new Error('no empty hold slot');
+      const [next, t] = removeTile(s, action.zone, action.index);
+      const hold = next.hold.slice();
+      hold[slot] = t;
+      return afterAction({ ...next, hold });
+    }
+    case 'riichi': {
+      if (!canRiichi(s, action.zone, action.index)) throw new Error('cannot riichi');
+      const declared: KyokuState = { ...s, riichi: { turn: s.turn, stick: s.setup.mods.riichiCost } };
+      return step(declared, { type: 'discard', zone: action.zone, index: action.index });
+    }
+    case 'redeal': {
+      if (!canRedeal(s)) throw new Error('cannot redeal');
+      const [rng, wall] = shuffle(s.rng, [...s.wall, ...s.hand, ...s.drawn]);
+      const hand = wall.splice(-4).sort(byKind);
+      const drawn = [wall.pop()!];
+      const next: KyokuState = { ...s, rng, wall, hand, drawn, redealt: true };
+      return { ...next, win: judge(next) };
+    }
+    case 'consumable':
+      return useConsumable(s, action.id);
+    case 'tsumo':
+      return declareWin(s);
+  }
+}
+
+function useConsumable(s: KyokuState, id: ConsumableId): KyokuState {
+  if (!canUseConsumable(s, id)) throw new Error(`cannot use ${id}`);
+  let next: KyokuState;
+  if (id === 'tsumo') {
+    const wall = s.wall.slice();
+    const [old, ...restDrawn] = s.drawn;
+    wall.unshift(old);
+    next = { ...s, wall, drawn: [wall.pop()!, ...restDrawn] };
+  } else if (id === 'hiroi') {
+    const river = s.river.slice();
+    next = { ...s, river, drawn: [...s.drawn, river.pop()!] };
+  } else if (id === 'nozoki') {
+    next = { ...s, peek: true };
+  } else {
+    const [rng, wall] = shuffle(s.rng, [...s.wall, ...s.hand, ...s.drawn]);
+    const hand = wall.splice(-4).sort(byKind);
+    next = { ...s, rng, wall, hand, drawn: [wall.pop()!] };
+  }
+  return { ...next, win: judge(next) };
+}
+
+function declareWin(s: KyokuState): KyokuState {
+  if (!s.win) throw new Error('no winning hand');
+  let ev = s.win.evaluation;
+  let ura: Tile[] = [];
+  if (s.riichi) {
+    ura = s.wall.slice(0, s.setup.mods.uraIndicators);
+    const n = ura.reduce((a, t) => a + s.win!.kinds.filter((k) => k === doraOf(t.kind)).length, 0);
+    if (n) ev = addHan(ev, [yakuEntry('裏ドラ', n)]);
+  }
+  const m = s.setup.mods;
+  const score = finalizeScore(ev, {
+    noLimit: m.noLimit,
+    yakuLevels: s.setup.yakuLevels,
+    cheapHandTimes4: m.cheapHandTimes4,
+    dealer: s.setup.dealer,
+    dealerMultiplier: m.dealerMultiplier,
+    riichiTurns: s.riichi ? s.turn - s.riichi.turn : 0,
+    riichiBonusPerTurn: m.riichiBonusPerTurn,
+    honba: s.setup.honba,
+    honbaBonus: m.honbaBonus,
+  });
+  const used = new Set(s.win.tileIds);
+  const gold = allTiles(s).filter((t) => used.has(t.id) && t.gold).length;
+  const win = { ...s.win, evaluation: ev, points: score.points };
+  return { ...s, result: { type: 'win', win, score, ura, gold } };
+}
+
+/** 待ち牌の残り枚数（見えている牌から数える） */
+export function remainingOf(s: KyokuState, k: Kind): number {
+  const seen = [...allTiles(s), ...s.river, ...s.indicators].filter((t) => t.kind === k).length;
+  return Math.max(0, s.setup.copies[k] - seen);
+}

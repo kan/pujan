@@ -1,0 +1,19 @@
+{
+  "name": "pujan",
+  "version": "0.0.1",
+  "private": true,
+  "description": "プチ麻雀 — 手牌5枚の麻雀ローグライト",
+  "scripts": {
+    "dev": "npm run dev:all",
+    "dev:all": "node scripts/dev.mjs",
+    "dev:roji": "roji run pujan -- node scripts/dev.mjs",
+    "test": "npm test --workspaces --if-present",
+    "build": "npm run build -w frontend",
+    "deploy": "npm run build && npm run deploy:prod -w backend"
+  },
+  "workspaces": [
+    "engine",
+    "frontend",
+    "backend"
+  ]
+}

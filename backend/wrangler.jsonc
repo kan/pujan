@@ -1,0 +1,35 @@
+{
+  "$schema": "../node_modules/wrangler/config-schema.json",
+  // The top level is for local development (`npm run dev:roji`, AGENTS.md「ローカル開発」).
+  // env.dev (pujan-dev.kan-game.app) and env.production (pujan.kan-game.app) are added when the
+  // remote resources exist: creating them, registering secrets and deploying need the owner's approval.
+  "name": "pujan-local",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-10-01",
+  "compatibility_flags": ["nodejs_compat"],
+
+  // The SPA is served by this same Worker (Static Assets). Only /api/* reaches the Worker's code.
+  "assets": {
+    "directory": "../frontend/dist",
+    "not_found_handling": "single-page-application",
+    "run_worker_first": ["/api/*"],
+  },
+
+  "vars": {
+    "ENVIRONMENT": "development",
+    "FRONTEND_URL": "http://localhost:5173",
+    "ALLOWED_ORIGINS": "http://localhost:5173",
+    // The kan-game.app ID cookie and the keys that verify it (kan/game docs/ID_DESIGN.md「ID と Cookie」).
+    // Locally scripts/dev.mjs passes ID_PUBLIC_KEYS from kan/game's .dev.vars
+    "ID_COOKIE_NAME": "__Secure-kgdev_id",
+    "ID_ISSUER": "localhost",
+    "ID_PUBLIC_KEYS": "[]",
+  },
+
+  "d1_databases": [
+    { "binding": "DB", "database_name": "pujan-local", "database_id": "pujan-local", "migrations_dir": "migrations" },
+  ],
+  // The kan-game.app ID platform (kan/game). /api/id/* is passed to it. Locally it is kan/game's
+  // `wrangler dev`, found through the dev registry
+  "services": [{ "binding": "ID", "service": "kan-game-local" }],
+}
