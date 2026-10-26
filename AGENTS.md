@@ -16,7 +16,6 @@
 - `engine/`: 役判定・点数・局の状態機械・ラン・ショップを移植済み。テストあり（`engine/tests/`）
 - `frontend/`: 仮の画面だけ（engine とのつなぎの確認用）。本来の画面はフェーズ 2 でプロトタイプから移植する
 - `backend/`: `/api/health` と ID 基盤への中継だけ。`wrangler.jsonc` はローカルの設定だけで、dev・production の環境はまだない
-- `package-lock.json` はまだない（骨組みはネットワークに出られない環境で作ったため）。最初の `npm install` で作る
 
 次に取りかかるのはフェーズ 1（エンジンの仕上げ）。
 
