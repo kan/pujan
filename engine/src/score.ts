@@ -51,6 +51,11 @@ export interface FinalizeContext {
 }
 
 export interface ScoreLine {
+  /**
+   * 行の種類。yaku: 役と翻（役なし・ドラなどのボーナスを含む）、limit: 満貫などの上限、
+   * multiplier: 掛ける倍率（役レベル・安手の美学・親）、bonus: 足す点（リーチ後の巡・本場）
+   */
+  kind: 'yaku' | 'limit' | 'multiplier' | 'bonus';
   label: string;
   /** 表示用の値（「3翻」「×1.5」「+200」など） */
   value: string;
@@ -65,38 +70,39 @@ const roundUp100 = (n: number) => Math.ceil(n / 100) * 100;
 
 export function finalizeScore(ev: Evaluation, ctx: FinalizeContext): FinalScore {
   const lines: ScoreLine[] = ev.yaku.map((y) => ({
+    kind: 'yaku',
     label: y.name,
     value: y.yakuman ? (y.yakuman === 2 ? 'ダブル役満' : '役満') : `${y.han}翻`,
   }));
   // ボーナスの翻（ドラ・門前など）が付いたときは、その行だけを出す（役なしのままなのは noYaku で分かる）
-  if (!ev.yaku.length) lines.unshift({ label: '役なし', value: '' });
+  if (!ev.yaku.length) lines.unshift({ kind: 'yaku', label: '役なし', value: '' });
   let points = basePoints(ev, ctx.noLimit);
   const limit = ev.yakuman ? null : limitName(ev.han, ctx.noLimit);
-  if (limit) lines.push({ label: limit, value: `${points.toLocaleString('ja-JP')}点` });
+  if (limit) lines.push({ kind: 'limit', label: limit, value: `${points.toLocaleString('ja-JP')}点` });
 
   let levelTimes = 1;
   for (const y of ev.yaku) levelTimes *= 1.5 ** (ctx.yakuLevels[y.name] ?? 0);
   if (levelTimes > 1) {
     points = Math.round((points * levelTimes) / 100) * 100;
-    lines.push({ label: '役レベル', value: `×${+levelTimes.toFixed(2)}` });
+    lines.push({ kind: 'multiplier', label: '役レベル', value: `×${+levelTimes.toFixed(2)}` });
   }
   if (ev.noYaku && ctx.cheapHandTimes4) {
     points *= 4;
-    lines.push({ label: '安手の美学', value: '×4' });
+    lines.push({ kind: 'multiplier', label: '安手の美学', value: '×4' });
   }
   if (ctx.dealer) {
     points = roundUp100(points * ctx.dealerMultiplier);
-    lines.push({ label: '親', value: `×${ctx.dealerMultiplier}` });
+    lines.push({ kind: 'multiplier', label: '親', value: `×${ctx.dealerMultiplier}` });
   }
   if (ctx.riichiTurns > 0) {
     const bonus = ctx.riichiTurns * ctx.riichiBonusPerTurn;
     points += bonus;
-    lines.push({ label: `リーチ後${ctx.riichiTurns}巡`, value: `+${bonus}` });
+    lines.push({ kind: 'bonus', label: `リーチ後${ctx.riichiTurns}巡`, value: `+${bonus}` });
   }
   if (ctx.honba > 0) {
     const bonus = ctx.honba * ctx.honbaBonus;
     points += bonus;
-    lines.push({ label: `${ctx.honba}本場`, value: `+${bonus}` });
+    lines.push({ kind: 'bonus', label: `${ctx.honba}本場`, value: `+${bonus}` });
   }
   return { points, lines };
 }

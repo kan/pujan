@@ -1,51 +1,45 @@
 <script setup lang="ts">
 /**
- * 仮の画面。engine とのつなぎを確かめるために、1 局を始めて手牌を表示するだけ。
- * 本来の画面はプロトタイプ（docs/prototype/puchi-mahjong.html）を移植する（docs/SPEC.md §6 フェーズ 2）。
+ * 画面の組み立て。局の画面を常に出し、その上に今の状態に合うシートを 1 つ重ねる。
+ * どのシートを出すかは engine の状態（局の結果、ランの段階）から決める。
+ * 役表・設定・持ち物は、プレイヤーが開いたときだけ出す。
  */
 import { computed, ref } from 'vue';
-import { beginKyoku, createRun, step, tileName, type KyokuState } from '@pujan/engine';
+import { useGameStore } from '@/stores/game';
+import TableView from '@/components/TableView.vue';
+import DrawSheet from '@/components/sheets/DrawSheet.vue';
+import IntroSheet from '@/components/sheets/IntroSheet.vue';
+import InventorySheet from '@/components/sheets/InventorySheet.vue';
+import SettingsSheet from '@/components/sheets/SettingsSheet.vue';
+import ShopSheet from '@/components/sheets/ShopSheet.vue';
+import WaveSheet from '@/components/sheets/WaveSheet.vue';
+import WinSheet from '@/components/sheets/WinSheet.vue';
+import YakuSheet from '@/components/sheets/YakuSheet.vue';
 
-const { kyoku: first } = beginKyoku(createRun(Date.now()));
-const kyoku = ref<KyokuState>(first);
-const tiles = computed(() => [...kyoku.value.hand, ...kyoku.value.drawn]);
+const store = useGameStore();
+store.init();
 
-function discard(index: number) {
-  const k = kyoku.value;
-  if (k.result) return;
-  kyoku.value =
-    index < k.hand.length
-      ? step(k, { type: 'discard', zone: 'hand', index })
-      : step(k, { type: 'discard', zone: 'drawn', index: index - k.hand.length });
-}
+type Panel = 'ref' | 'settings' | 'inventory';
+const panel = ref<Panel | null>(null);
+
+const sheet = computed(() => {
+  const { run, kyoku } = store.game;
+  if (kyoku?.result) return kyoku.result.type === 'win' ? 'win' : 'draw';
+  if (run.phase === 'over' || run.phase === 'cleared') return 'wave';
+  if (run.phase === 'shop') return store.showWaveResult ? 'wave' : 'shop';
+  return store.showIntro ? 'intro' : null;
+});
 </script>
 
 <template>
-  <main class="placeholder">
-    <h1>プチ麻雀</h1>
-    <p>巡 {{ kyoku.turn }} / {{ kyoku.setup.mods.turns }}</p>
-    <div class="hand">
-      <button v-for="(t, i) in tiles" :key="t.id" type="button" @click="discard(i)">{{ tileName(t.kind) }}</button>
-    </div>
-    <p v-if="kyoku.win">和了れます: {{ kyoku.win.evaluation.yaku.map((y) => y.name).join('・') || '役なし' }}</p>
-    <p v-if="kyoku.result">局が終わりました（{{ kyoku.result.type === 'win' ? '和了' : '流局' }}）</p>
-  </main>
-</template>
+  <TableView @open-ref="panel = 'ref'" @open-settings="panel = 'settings'" @open-inventory="panel = 'inventory'" />
 
-<style scoped>
-.placeholder {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  padding: 24px 16px;
-}
-.hand {
-  display: flex;
-  gap: 6px;
-  flex-wrap: wrap;
-}
-.hand button {
-  padding: 12px 8px;
-  font: inherit;
-}
-</style>
+  <YakuSheet v-if="panel === 'ref'" @close="panel = null" />
+  <SettingsSheet v-else-if="panel === 'settings'" @close="panel = null" />
+  <InventorySheet v-else-if="panel === 'inventory'" @close="panel = null" />
+  <WinSheet v-else-if="sheet === 'win'" />
+  <DrawSheet v-else-if="sheet === 'draw'" />
+  <WaveSheet v-else-if="sheet === 'wave'" @close="store.dismiss()" />
+  <ShopSheet v-else-if="sheet === 'shop'" />
+  <IntroSheet v-else-if="sheet === 'intro'" />
+</template>

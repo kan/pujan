@@ -46,6 +46,8 @@ export interface GameState {
   run: RunState;
   /** 進行中の局（ショップやランの終了後は null） */
   kyoku: KyokuState | null;
+  /** 直前に精算した局（ショップや場の結果の後ろに、終わった局を表示するため） */
+  previous: KyokuState | null;
 }
 
 export interface RunLog {
@@ -58,11 +60,12 @@ export interface RunLog {
 /** ラン終了（over）と全場クリア（cleared） */
 export const isFinished = (g: GameState): boolean => g.run.phase === 'over' || g.run.phase === 'cleared';
 
-const withKyoku = (run: RunState): GameState => (run.phase === 'kyoku' ? beginKyoku(run) : { run, kyoku: null });
+const withKyoku = (run: RunState, previous: KyokuState | null): GameState =>
+  run.phase === 'kyoku' ? { ...beginKyoku(run), previous } : { run, kyoku: null, previous };
 
 /** 新しいラン。start は最初から持つお守りと設備（createRun を参照） */
 export function createGame(seed: number, base: BaseRules = DEFAULT_BASE_RULES, start?: Loadout): GameState {
-  return withKyoku(createRun(seed, base, start));
+  return withKyoku(createRun(seed, base, start), null);
 }
 
 function activeKyoku(g: GameState): KyokuState {
@@ -89,12 +92,12 @@ export function apply(g: GameState, action: GameAction): GameState {
       // consumeConsumable が番号を確かめてから、その消耗品を局で使う
       const run = consumeConsumable(g.run, action.index);
       const id = g.run.consumables[action.index];
-      return { run, kyoku: step(activeKyoku(g), { type: 'consumable', id }) };
+      return { ...g, run, kyoku: step(activeKyoku(g), { type: 'consumable', id }) };
     }
     case 'settle': {
       const result = activeKyoku(g).result;
       if (!result) throw new Error('kyoku has not ended');
-      return { run: settleKyoku(g.run, result, action.renchan ?? false), kyoku: null };
+      return { run: settleKyoku(g.run, result, action.renchan ?? false), kyoku: null, previous: g.kyoku };
     }
     case 'buy':
       return { ...g, run: buy(inShop(g), action.index, action.target) };
@@ -103,7 +106,7 @@ export function apply(g: GameState, action: GameAction): GameState {
     case 'reroll':
       return { ...g, run: reroll(inShop(g)) };
     case 'leave':
-      return withKyoku(leaveShop(inShop(g)));
+      return withKyoku(leaveShop(inShop(g)), g.previous);
     default:
       // ログの操作は信頼できない入力なので、知らない種類（局の 'consumable' を直接送るなど）は拒む
       throw new Error(`unknown action: ${(action as { type: unknown }).type}`);

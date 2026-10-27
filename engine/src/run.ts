@@ -27,6 +27,7 @@ import {
   type ModId,
 } from './items.js';
 import { defaultComposition, startKyoku, type Composition, type KyokuResult, type KyokuState } from './kyoku.js';
+import type { FinalScore } from './score.js';
 import { createRng, mix32, nextFloat, nextInt } from './rng.js';
 import { EAST, KIND_COUNT, type Kind } from './tiles.js';
 
@@ -34,6 +35,8 @@ export const WAVE_TARGETS: readonly number[] = [1000, 2000, 4000, 8000];
 export const WAVE_COUNT = 4;
 export const KYOKU_PER_WAVE = 4;
 export const START_MONEY = 4;
+/** 流局時に聴牌していたときの祝儀 */
+export const TENPAI_MONEY = 1;
 
 export interface RoundLogEntry {
   kyoku: number;
@@ -166,6 +169,17 @@ export function pointsDelta(result: KyokuResult): number {
 }
 
 /**
+ * 場の記録に残す和了の名前。点数の内訳から役と上限（満貫など）の行だけを並べる
+ * （プロトタイプと同じ。倍率やボーナスの行は入れない）。
+ */
+function winLabel(score: FinalScore): string {
+  return score.lines
+    .filter((l) => l.kind === 'yaku' || l.kind === 'limit')
+    .map((l) => l.label)
+    .join('・');
+}
+
+/**
  * 局の結果を精算する。親の和了では renchan で連荘か和了やめかを選ぶ。
  * 4 局目のあとは場の判定に進み、それ以外はショップを開く。
  */
@@ -178,16 +192,16 @@ export function settleKyoku(run: RunState, result: KyokuResult, renchan = false)
     round.log.push({
       kyoku: round.kyoku,
       honba: round.honba,
-      label: result.win.evaluation.yaku.map((y) => y.name).join('・') || '役なし',
+      label: winLabel(result.score),
       points: result.score.points,
       dealer,
     });
   } else {
-    if (result.tenpai) money += 1;
+    if (result.tenpai) money += TENPAI_MONEY;
     round.log.push({
       kyoku: round.kyoku,
       honba: round.honba,
-      label: result.tenpai ? '流局（聴牌）' : '流局',
+      label: (result.tenpai ? '流局（聴牌）' : '流局') + (result.stickLost ? '・リーチ棒没収' : ''),
       points: pointsDelta(result),
       dealer,
     });
@@ -310,21 +324,32 @@ function applyMod(comp: Composition, mod: ModId, k: Kind): Composition {
   return c;
 }
 
+/** 品物を買えない理由（買えるなら null）。画面はこれで案内を出し、buy() も同じ理由で断る */
+export type BuyBlocker = 'noOffer' | 'sold' | 'money' | 'charmsFull' | 'consumablesFull';
+
+export function buyBlocker(run: RunState, index: number): BuyBlocker | null {
+  const o = itemAt(run.shop, index);
+  if (run.phase !== 'shop' || !o) return 'noOffer';
+  if (o.sold) return 'sold';
+  if (run.money < o.price) return 'money';
+  if (o.kind === 'charm' && run.charms.length >= MAX_CHARMS) return 'charmsFull';
+  if (o.kind === 'consumable' && run.consumables.length >= MAX_CONSUMABLES) return 'consumablesFull';
+  return null;
+}
+
 /** 品物を買う。牌の改造は対象の種類（target）が要る */
 export function buy(run: RunState, index: number, target?: Kind): RunState {
-  const offers = run.shop;
-  const o = itemAt(offers, index);
-  if (run.phase !== 'shop' || !offers || !o || o.sold) throw new Error('no such offer');
-  if (run.money < o.price) throw new Error('not enough money');
+  const blocker = buyBlocker(run, index);
+  if (blocker) throw new Error(`cannot buy: ${blocker}`);
+  const offers = run.shop!;
+  const o = offers[index];
   const next: RunState = { ...run, money: run.money - o.price, shop: offers.map((x, i) => (i === index ? { ...x, sold: true } : x)) };
   switch (o.kind) {
     case 'charm':
-      if (run.charms.length >= MAX_CHARMS) throw new Error('charm slots are full');
       return { ...next, charms: [...run.charms, o.id] };
     case 'equip':
       return { ...next, equipment: [...run.equipment, o.id] };
     case 'consumable':
-      if (run.consumables.length >= MAX_CONSUMABLES) throw new Error('consumable slots are full');
       return { ...next, consumables: [...run.consumables, o.id] };
     case 'scroll':
       return { ...next, yakuLevels: { ...run.yakuLevels, [o.yaku]: (run.yakuLevels[o.yaku] ?? 0) + 1 } };

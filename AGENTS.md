@@ -11,13 +11,13 @@
 
 ## 現在の状態
 
-`docs/SPEC.md` §6「開発フェーズ」のフェーズ 1（エンジンの仕上げ）まで。
+`docs/SPEC.md` §6「開発フェーズ」のフェーズ 2（画面）まで。
 
 - `engine/`: 役判定・点数・局の状態機械・ラン・ショップ・操作ログの再生（`game.ts`）・シミュレーション（`sim.ts`）。テストあり（`engine/tests/`。プロトタイプとの突き合わせを含む）
-- `frontend/`: 仮の画面だけ（engine とのつなぎの確認用）。本来の画面はフェーズ 2 でプロトタイプから移植する
+- `frontend/`: プロトタイプから移植した画面。サーバーにはまだつながず、途中のランは localStorage の操作ログで再開する
 - `backend/`: `/api/health` と ID 基盤への中継だけ。`wrangler.jsonc` はローカルの設定だけで、dev・production の環境はまだない
 
-次に取りかかるのはフェーズ 2（画面）。
+次に取りかかるのはフェーズ 3（バックエンド）。
 
 ## リポジトリ構成
 
@@ -35,6 +35,8 @@ pujan/
 ## 技術スタック
 
 vegtab（kan/vegtab）と同じ構成にそろえる。特別な理由がない限りこの構成から外れない。
+
+TAKO-SEN（kan/tako-sen）は vegtab より新しく、同じ kan-game.app のゲームとして書き方が新しい。保存・ダイアログ・PWA・ID 連携などの手本を探すときは TAKO-SEN も見て、新しいほうの書き方を優先する（Pinia を使う点など、このファイルや `docs/SPEC.md` が決めていることはそちらに従う）。
 
 - TypeScript（全パッケージ）、npm workspaces、Vitest
 - frontend: Vue 3（Composition API）、Pinia、Vite、vite-plugin-pwa

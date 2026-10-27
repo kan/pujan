@@ -188,10 +188,13 @@ export function judge(s: KyokuState): Win | null {
   return { ...w, evaluation: ev, points: basePoints(ev, m.noLimit) };
 }
 
+/** 親のノーテン流局の罰符: 300 点×（本場数＋1） */
+export const notenPenalty = (honba: number): number => 300 * (honba + 1);
+
 function endWithDraw(s: KyokuState): KyokuState {
   const tenpai = s.waits === null || s.waits.length > 0;
   const fee = tenpai ? s.setup.mods.tenpaiFee : 0;
-  const penalty = s.setup.dealer && !tenpai ? 300 * (s.setup.honba + 1) : 0;
+  const penalty = s.setup.dealer && !tenpai ? notenPenalty(s.setup.honba) : 0;
   return {
     ...s,
     drawn: [],

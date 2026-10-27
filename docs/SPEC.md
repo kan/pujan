@@ -329,11 +329,12 @@ vegtab と同じ npm workspaces のモノレポ。
 - バランス調整用のシミュレーション CLI（`npm run sim -w engine -- deal|target|runs`）。配牌の確率表と 12 巡の和了率を回帰テストにした（`engine/tests/sim.test.ts`）
 - 操作ログの形式と、ランの再生関数（§5.3）
 
-### フェーズ 2: 画面
+### フェーズ 2: 画面（完了）
 
-- プロトタイプの画面を Vue に移植（§2）。牌は SVG で描く
-- ラン・局・ショップの状態を Pinia で持つ。途中のランを localStorage に保存して再開できるようにする
-- PWA のアイコン
+- プロトタイプの画面を Vue に移植（§2）。牌は SVG で描く（`frontend/src/components/MjTile.vue`。牌の地と影は CSS）
+- ラン・局・ショップの状態を Pinia で持つ（`frontend/src/stores/game.ts`）。操作はすべて engine の `apply()` に通し、操作ログを localStorage に保存する。開き直したときは `replay()` で作り直す（再生できないログは捨てて新しいランを始める）
+- PWA のアイコン（元の絵は `frontend/public/pujan-icon.svg`）
+- プロトタイプの設定にあった「テスト用：祝儀＋20」は、操作ログで再生できないので置かない
 
 ### フェーズ 3: バックエンド
 

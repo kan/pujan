@@ -1,4 +1,8 @@
-/* 色と書体の基準。プロトタイプ（docs/prototype/puchi-mahjong.html）の :root と同じ値 */
+/*
+ * 画面の見た目。プロトタイプ（docs/prototype/puchi-mahjong.html）の <style> を、クラス名もそのまま写したもの。
+ * 縦持ちの 1 画面: 上に状況の帯、中ほどに情報と河、空いたところに中央の案内、親指の届く下側に保留・手牌・操作。
+ * 牌の面は SVG（components/MjTile.vue）で描くので、ここには牌の地・影・大きさだけを置く。
+ */
 :root {
   --felt: #1e4637;
   --felt-dark: #142f25;
@@ -20,8 +24,753 @@
   color-scheme: dark;
 }
 
+html,
 body {
-  font-family: var(--f-body);
-  background: var(--felt);
+  height: 100%;
+}
+body {
+  background: radial-gradient(120% 80% at 50% 30%, #245442 0%, var(--felt) 45%, var(--felt-dark) 100%);
+  background-color: var(--felt);
   color: var(--fg);
+  font-family: var(--f-body);
+  font-size: 14px;
+}
+.app {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-width: 520px;
+  margin: 0 auto;
+  padding-block: calc(8px + env(safe-area-inset-top, 0px)) calc(12px + env(safe-area-inset-bottom, 0px));
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  box-sizing: border-box;
+}
+header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+h1 {
+  font-family: var(--f-tile);
+  font-weight: 800;
+  font-size: 18px;
+  margin: 0;
+  letter-spacing: 0.06em;
+}
+.spacer {
+  flex: 1;
+}
+.ghost {
+  background: none;
+  border: 1px solid var(--line);
+  color: var(--fg);
+  border-radius: 8px;
+  padding: 5px 10px;
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+.ghost:focus-visible,
+.btn:focus-visible,
+.tile:focus-visible,
+.river:focus-visible,
+.slot:focus-visible,
+.c:focus-visible,
+.pick:focus-visible {
+  outline: 2px solid var(--gold);
+  outline-offset: 2px;
+}
+
+/* 状況の帯 */
+.band {
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: 12px;
+  padding: 8px 10px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.segs {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 4px;
+}
+.seg {
+  position: relative;
+  height: 22px;
+  border-radius: 5px;
+  background: rgba(255, 255, 255, 0.06);
+  font-size: 11px;
+  color: var(--muted);
+  display: grid;
+  place-items: center;
+  letter-spacing: 0.05em;
+}
+.seg.done {
+  background: rgba(255, 255, 255, 0.12);
+  color: var(--fg);
+}
+.seg.cur {
+  background: var(--fg);
+  color: var(--felt-dark);
+  font-weight: 700;
+}
+.seg .boss {
+  position: absolute;
+  top: -5px;
+  left: -3px;
+  background: var(--fg);
+  color: var(--felt-dark);
+  border-radius: 4px;
+  padding: 0 3px;
+  font-size: 10px;
+  line-height: 15px;
+}
+.seg.cur .boss {
+  background: var(--man);
+  color: #fff;
+}
+.seg .oya {
+  position: absolute;
+  top: -5px;
+  right: -3px;
+  background: var(--man);
+  color: #fff;
+  border-radius: 4px;
+  padding: 0 3px;
+  font-size: 10px;
+  line-height: 15px;
+}
+.nums {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  font-variant-numeric: tabular-nums;
+}
+.nums .rd {
+  font-weight: 700;
+  font-size: 15px;
+}
+.nums .tn {
+  font-size: 14px;
+  color: var(--muted);
+  border-radius: 8px;
+  padding: 2px 8px;
+  background: rgba(0, 0, 0, 0.2);
+}
+.nums .tn b {
+  color: var(--fg);
+  font-size: 20px;
+}
+.nums .tn.low {
+  background: rgba(216, 170, 69, 0.2);
+  color: var(--gold);
+}
+.nums .tn.low b {
+  color: var(--gold);
+}
+.nums .tn.last {
+  background: var(--danger);
+  color: #2a0b06;
+}
+.nums .tn.last b {
+  color: #2a0b06;
+}
+.nums .sc {
+  margin-left: auto;
+  font-weight: 700;
+  font-size: 18px;
+}
+.nums .sc small {
+  color: var(--muted);
+  font-weight: 400;
+  font-size: 12px;
+}
+.bar {
+  height: 4px;
+  background: rgba(0, 0, 0, 0.35);
+  border-radius: 2px;
+  overflow: hidden;
+}
+.bar i {
+  display: block;
+  height: 100%;
+  background: var(--gold);
+  transition: width 0.3s;
+}
+
+/* 情報と持ち物 */
+.info {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  flex-wrap: wrap;
+  font-size: 14px;
+  color: var(--muted);
+}
+.info .tile {
+  --w: 28px;
+}
+.info .c {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 4px 10px 6px 6px;
+  min-height: 36px;
+  box-sizing: border-box;
+}
+.info .c b {
+  font-size: 15px;
+  color: var(--fg);
+  font-weight: 500;
+}
+.info .c.boss {
+  border-color: var(--danger);
+  color: var(--danger);
+}
+.info .c.boss b {
+  color: var(--danger);
+}
+.inv .c {
+  font: inherit;
+  font-size: 13px;
+  background: none;
+  color: var(--muted);
+  min-height: 32px;
+}
+.inv .money {
+  border-color: var(--gold);
+  color: var(--gold);
+}
+.inv .money b {
+  color: var(--gold);
+}
+.inv button.c {
+  cursor: pointer;
+  color: var(--fg);
+}
+.inv .use {
+  border-style: dashed;
+  border-color: var(--gold);
+}
+.inv .use:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.badge {
+  background: var(--gold);
+  color: var(--gold-ink);
+  border-radius: 999px;
+  padding: 3px 10px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+}
+
+/* 河 */
+.river {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: rgba(0, 0, 0, 0.12);
+  border-radius: 10px;
+  padding: 6px 8px;
+  cursor: pointer;
+  border: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  width: 100%;
+  box-sizing: border-box;
+}
+.river .rl {
+  font-size: 11px;
+  color: var(--muted);
+  letter-spacing: 0.1em;
+  flex: 0 0 auto;
+}
+.river .rt {
+  display: flex;
+  gap: 3px;
+  overflow: hidden;
+  flex: 1;
+  min-width: 0;
+  justify-content: flex-end;
+  flex-wrap: nowrap;
+}
+.river.open .rt {
+  flex-wrap: wrap;
+  justify-content: flex-start;
+}
+.river .rt .empty {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+/* 中央の案内 */
+.stage {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.callout {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  text-align: center;
+  max-width: 100%;
+}
+.callout .msg {
+  font-size: 13px;
+  color: var(--muted);
+}
+.callout.win {
+  background: rgba(216, 170, 69, 0.12);
+  border: 1px solid var(--gold);
+  border-radius: 14px;
+  padding: 12px 16px;
+}
+.callout.win .yk {
+  font-family: var(--f-tile);
+  font-size: 20px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-wrap: balance;
+}
+.callout.win .pt {
+  color: var(--gold);
+  font-weight: 700;
+  font-size: 16px;
+  font-variant-numeric: tabular-nums;
+}
+.waits {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+.waits .w {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  font-size: 11px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+.waits .w.dead {
+  opacity: 0.4;
+}
+
+/* 保留・ネクスト・手牌 */
+.play {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.holdrow {
+  display: flex;
+  gap: 8px;
+  align-items: flex-end;
+  min-height: 66px;
+  flex-wrap: wrap;
+}
+.hg {
+  display: flex;
+  gap: 6px;
+  align-items: flex-end;
+}
+.holdrow .nextin {
+  margin-left: auto;
+  display: flex;
+  align-items: flex-end;
+  gap: 4px;
+  padding: 5px 8px 8px;
+  border: 1px dashed var(--line);
+  border-radius: 10px;
+}
+.nextin .tile {
+  --w: 42px;
+  cursor: default;
+}
+.nextin.many .tile {
+  --w: 26px;
+}
+.nextin .arr {
+  color: var(--muted);
+  font-size: 15px;
+  align-self: center;
+}
+.nextin .nl,
+.holdrow .hl {
+  font-size: 11px;
+  color: var(--muted);
+  letter-spacing: 0.12em;
+  writing-mode: vertical-rl;
+  align-self: center;
+}
+.slot {
+  width: 40px;
+  height: 54px;
+  border: 1.5px dashed var(--line);
+  border-radius: 6px;
+  display: grid;
+  place-items: center;
+  color: var(--line);
+  font-size: 11px;
+  cursor: pointer;
+  background: none;
+  font-family: inherit;
+}
+.slot.target {
+  border-color: var(--gold);
+  color: var(--gold);
+}
+.handrow {
+  display: flex;
+  gap: 5px;
+  align-items: flex-end;
+  justify-content: center;
+  padding-top: 12px;
+}
+.handrow .gap {
+  width: 10px;
+}
+
+/* 操作ボタン */
+.actions {
+  display: flex;
+  gap: 8px;
+  min-height: 48px;
+}
+.actions .btn {
+  flex: 1;
+}
+.actions .btn.wide {
+  flex: 2;
+}
+.actions .idle {
+  flex: 1;
+  display: grid;
+  place-items: center;
+  font-size: 12px;
+  color: var(--muted);
+}
+.sheet .actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+}
+.btn {
+  font: inherit;
+  font-weight: 700;
+  font-size: 15px;
+  border-radius: 10px;
+  padding: 12px 8px;
+  border: 1px solid var(--line);
+  background: rgba(0, 0, 0, 0.2);
+  color: var(--fg);
+  cursor: pointer;
+}
+.btn:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+.btn.win {
+  background: var(--gold);
+  color: var(--gold-ink);
+  border-color: var(--gold);
+}
+.btn.riichi {
+  border-color: var(--gold);
+  color: var(--gold);
+}
+
+/* ショップ */
+.cards {
+  display: grid;
+  gap: 8px;
+}
+.card {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 10px 12px;
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 4px 12px;
+  align-items: center;
+}
+.card .ct {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+  flex-wrap: wrap;
+}
+.card .ct b {
+  font-size: 16px;
+}
+.card .ty {
+  font-size: 11px;
+  color: var(--gold);
+  border: 1px solid var(--gold);
+  border-radius: 4px;
+  padding: 0 5px;
+  letter-spacing: 0.06em;
+}
+.card p {
+  grid-column: 1;
+  margin: 0;
+  font-size: 12px;
+  color: var(--muted);
+  line-height: 1.5;
+}
+.card .btn {
+  grid-column: 2;
+  grid-row: 1 / 3;
+  padding: 10px 12px;
+  font-size: 14px;
+}
+.card .btn.buy {
+  border-color: var(--gold);
+  color: var(--gold);
+}
+.card.sold {
+  opacity: 0.5;
+}
+.owns {
+  display: grid;
+  gap: 6px;
+}
+.own {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 2px 10px;
+  align-items: center;
+  border-top: 1px solid var(--line);
+  padding-top: 6px;
+}
+.own small {
+  grid-column: 1;
+  color: var(--muted);
+  font-size: 12px;
+}
+.own .ghost {
+  grid-column: 2;
+  grid-row: 1 / 3;
+}
+.picker {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(52px, 1fr));
+  gap: 6px;
+}
+.pick {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  background: none;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 6px 2px;
+  color: var(--muted);
+  font: inherit;
+  cursor: pointer;
+}
+.pick small {
+  font-size: 10px;
+}
+.pick:disabled {
+  opacity: 0.3;
+  cursor: default;
+}
+.note.warn {
+  color: var(--danger);
+}
+
+/* 牌の地（面は MjTile.vue の SVG） */
+.tile {
+  --w: 52px;
+  width: var(--w);
+  height: calc(var(--w) * 1.36);
+  background: linear-gradient(180deg, #fffaf0, var(--ivory));
+  border-radius: calc(var(--w) * 0.12);
+  box-shadow:
+    0 4px 0 var(--ivory-edge),
+    0 6px 0 var(--tile-side),
+    0 8px 10px rgba(0, 0, 0, 0.35);
+  display: inline-block;
+  position: relative;
+  cursor: pointer;
+  border: none;
+  padding: 0;
+  transition: transform 0.12s;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+  flex: 0 0 auto;
+}
+span.tile {
+  cursor: default;
+}
+.tile.sm {
+  --w: 26px;
+  box-shadow:
+    0 2px 0 var(--ivory-edge),
+    0 3px 0 var(--tile-side);
+}
+.tile.md {
+  --w: 40px;
+}
+.tile.xs {
+  --w: 22px;
+  box-shadow:
+    0 2px 0 var(--ivory-edge),
+    0 3px 0 var(--tile-side);
+}
+.tile.sel {
+  transform: translateY(-12px);
+}
+.tile.used {
+  outline: 2px solid var(--gold);
+  outline-offset: 2px;
+}
+.tile.kin {
+  background: linear-gradient(180deg, #fff3c4, #e9c867);
+}
+.tile.joker::after {
+  content: 'J';
+  position: absolute;
+  top: 2px;
+  right: 3px;
+  font-family: var(--f-body);
+  font-weight: 700;
+  font-size: calc(var(--w) * 0.2);
+  color: var(--gold-ink);
+  background: var(--gold);
+  border-radius: 3px;
+  padding: 0 2px;
+  line-height: 1.2;
+}
+.tile.drawn {
+  margin-left: 4px;
+}
+
+/* シート（和了・ショップなどのダイアログ） */
+.veil {
+  position: fixed;
+  inset: 0;
+  background: rgba(5, 15, 10, 0.6);
+  display: grid;
+  place-items: end center;
+  z-index: 20;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-bottom: calc(16px + env(safe-area-inset-bottom, 0px));
+}
+.sheet {
+  background: #173a2d;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  padding: 18px;
+  width: 100%;
+  max-width: 488px;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  max-height: 85vh;
+  overflow: auto;
+}
+.sheet h2 {
+  font-family: var(--f-tile);
+  font-size: 26px;
+  margin: 0;
+  letter-spacing: 0.08em;
+  text-wrap: balance;
+}
+.sheet h2 .pts {
+  color: var(--gold);
+  font-family: var(--f-body);
+  font-size: 22px;
+  margin-left: 8px;
+  font-variant-numeric: tabular-nums;
+}
+.yakulist {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 4px 12px;
+  font-size: 15px;
+  font-variant-numeric: tabular-nums;
+}
+.yakulist span:nth-child(even) {
+  color: var(--gold);
+  text-align: right;
+}
+.tilesline {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+.settings {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 10px 14px;
+  align-items: center;
+  font-size: 14px;
+}
+.settings select {
+  font: inherit;
+  background: var(--felt-dark);
+  color: var(--fg);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 6px 8px;
+}
+.ref {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 3px 12px;
+  font-size: 13px;
+}
+.ref .h {
+  color: var(--gold);
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.ref .c {
+  grid-column: 1 / -1;
+  color: var(--muted);
+  font-size: 12px;
+  margin: -2px 0 4px;
+}
+.note {
+  font-size: 12px;
+  color: var(--muted);
+  line-height: 1.6;
+  margin: 0;
+}
+@media (prefers-reduced-motion: reduce) {
+  .tile,
+  .bar i {
+    transition: none;
+  }
+}
+@media (max-width: 420px) {
+  .tile {
+    --w: 46px;
+  }
+  .nextin .tile {
+    --w: 38px;
+  }
+  .slot {
+    width: 36px;
+    height: 50px;
+  }
+  .tile.md {
+    --w: 36px;
+  }
 }

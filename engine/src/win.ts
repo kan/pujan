@@ -6,7 +6,7 @@
  */
 import { addHan, evaluateFive, evaluateSix, yakuEntry, type Evaluation, type HandRules, type YakuEntry } from './hand.js';
 import { basePoints } from './score.js';
-import { DRAGONS, GREEN, KIND_COUNT, NINES, ONES, WINDS, suit, type Kind, type Tile } from './tiles.js';
+import { ALL_KINDS, DRAGONS, GREEN, KIND_COUNT, NINES, ONES, WINDS, suit, type Kind, type Tile } from './tiles.js';
 
 export type DoraMode = 'normal' | 'joker' | 'jokerPlus';
 
@@ -75,8 +75,6 @@ function makeCombinations(n: number, k: number): number[][] {
 }
 
 /** 万能牌に当てはめる候補。3 枚以上のときは組み合わせが爆発するので、役になりそうな種類に絞る */
-const ALL_KINDS: readonly Kind[] = Array.from({ length: KIND_COUNT }, (_, k) => k);
-
 function jokerCandidates(fixed: readonly Kind[], jokers: number): readonly Kind[] {
   if (jokers <= 2) return ALL_KINDS;
   const s = new Set<Kind>([...DRAGONS, ...WINDS, ...ONES, ...NINES, ...GREEN]);

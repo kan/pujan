@@ -10,6 +10,9 @@ export type Kind = number;
 
 export const KIND_COUNT = 34;
 
+/** すべての種類（0〜33） */
+export const ALL_KINDS: readonly Kind[] = Array.from({ length: KIND_COUNT }, (_, k) => k);
+
 export const EAST = 27;
 export const SOUTH = 28;
 export const WEST = 29;
