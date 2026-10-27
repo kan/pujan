@@ -22,8 +22,20 @@ const { positionals, values } = parseArgs({
 if (!['local', 'dev', 'production'].includes(values.env)) throw new Error('--env は local・dev・production のどれか');
 const target = values.env === 'local' ? ['--local'] : ['--remote', '--env', values.env];
 
-/** SQL を 1 つ実行して行を返す（値は SQL に埋め込まない。ここの SQL は固定の文だけ） */
+/**
+ * SQL を 1 つ実行して行を返す（値は SQL に埋め込まない。ここの SQL は固定の文だけ）。
+ * リモートの D1 はときどき一時的なエラー（Cloudflare の API の 7403 など）を返すので、1 回だけやり直す
+ */
 function query(sql) {
+  try {
+    return queryOnce(sql);
+  } catch {
+    console.error('D1 への問い合わせに失敗したので、もう一度試します');
+    return queryOnce(sql);
+  }
+}
+
+function queryOnce(sql) {
   const out = execFileSync('npx', ['wrangler', 'd1', 'execute', 'DB', ...target, '--json', '--command', sql], {
     // wrangler.jsonc のある backend で動かす（どこから呼んでも同じ D1 を読む）
     cwd: fileURLToPath(new URL('..', import.meta.url)),
