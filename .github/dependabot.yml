@@ -1,0 +1,27 @@
+version: 2
+updates:
+  # ルート（npm workspaces）
+  # engine / frontend / backend は npm workspaces なので、このエントリだけで全ワークスペースの依存を更新できる。
+  # ワークスペースごとのディレクトリを指定すると、その package.json だけが更新されてルートの package-lock.json が
+  # 取り残され、CI の `npm ci` が lockfile の不整合で失敗する（vegtab と同じ）
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    ignore:
+      # TypeScript 7.0 はネイティブ（Go）実装で typescript/lib/tsc を公開しないため、それを require する
+      # vue-tsc（Volar）が起動できない。7.0.x だけを無視して 7.1 の PR は受け取る（CI が可否を判定する）。
+      # 7.1 でもまだ動かなければ 7.1.x をこの一覧に足す（vegtab と同じ）
+      - dependency-name: "typescript"
+        versions: ["7.0.x"]
+    groups:
+      minor-and-patch:
+        update-types:
+          - "minor"
+          - "patch"
+
+  # GitHub Actions
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"

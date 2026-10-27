@@ -1,0 +1,41 @@
+name: CI
+
+on:
+  push:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+          cache: npm
+
+      - run: npm ci
+
+      # backend は engine の dist を読む（engine/package.json の main）
+      - name: Build engine
+        run: npm run build -w engine
+
+      - name: Test
+        run: npm test
+
+      - name: Type check backend
+        run: npm run typecheck -w backend
+
+      - name: Type check and build frontend
+        run: npm run build -w frontend

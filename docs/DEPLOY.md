@@ -52,6 +52,7 @@ ID 基盤の変更は、このリポジトリの作業からは行わない（AG
 ### 4. 公開後の確認
 
 - `https://pujan-dev.kan-game.app/` が開き、`/api/health` が `{"status":"ok"}` を返す
+- 画面のヘッダー（`frontend/public/_headers`）: `curl -sI https://pujan-dev.kan-game.app/` に `Content-Security-Policy`・`X-Content-Type-Options: nosniff`・`X-Robots-Tag: noindex`（dev だけ）が付く。画面を開いて、ブラウザのコンソールに CSP の違反が出ない
 - 画面を開くと ID が発行され（`/api/id/session` が 200）、新しいランがサーバーのシードで始まる（`/api/runs` が 201）
 - ランを終えると記録され、ランキングの画面で名前を登録すると自分の記録が載る
 - 許可していないオリジンからの `POST /api/runs` が 403、Cookie なしが 401

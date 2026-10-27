@@ -1,0 +1,19 @@
+/*
+ * 画面の JS が読み込まれる前から、ラシャの色で塗っておく（白く光らないように）。
+ * index.html に直書きしないのは、CSP（public/_headers）が style-src に 'self' 以外を許さないため
+ */
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+body {
+  background: #1e4637;
+  color: #e8efe8;
+  overflow: hidden;
+  overscroll-behavior-x: none;
+}
+#app {
+  width: 100vw;
+  height: 100dvh;
+}

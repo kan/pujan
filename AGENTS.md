@@ -70,6 +70,10 @@ npm test                 # 全 workspace
 npm test -w engine       # engine だけ
 ```
 
+GitHub Actions（`.github/workflows/ci.yml`）が push ごとに、engine のビルド・テスト・backend の型検査・frontend の型検査とビルドを回す。依存の更新は Dependabot（`.github/dependabot.yml`）が週に 1 度 PR を出す。
+
+手元では、テストの並列の数を絞って回す（`npm test -- --maxWorkers=4`）。既定では CPU の数だけワーカーを立てるので、ほかの重い処理と重なるとマシンが固まる。
+
 ### バランスのシミュレーション
 
 ```bash
