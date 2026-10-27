@@ -56,7 +56,7 @@
           "binding": "DB",
           "database_name": "pujan-dev",
           // `npx wrangler d1 create pujan-dev` の結果を書く（docs/DEPLOY.md）
-          "database_id": "REPLACE_WITH_PUJAN_DEV_DATABASE_ID",
+          "database_id": "f1e5a4f3-565c-4dbb-a566-c0c462a09f10",
           "migrations_dir": "migrations",
         },
       ],
