@@ -85,9 +85,21 @@ function withoutOnce(kinds: readonly Kind[], remove: readonly Kind[]): Kind[] | 
   return rest;
 }
 
+/**
+ * 和了形になりうるかの手早い判定（待ちの計算で大量に呼ばれるので、ほとんどの手をここで落とす）。
+ * 対子も刻子もない 5 枚で和了形になるのは、プチ一通（同色の 5 連）とプチ大四喜（東南西北＋三元牌）だけ。
+ */
+function mayWin(kinds: readonly Kind[]): boolean {
+  for (let i = 0; i < 5; i++) for (let j = i + 1; j < 5; j++) if (kinds[i] === kinds[j]) return true;
+  // 数牌だけならプチ一通の可能性がある（色眼鏡で色の扱いが変わるので、判定は本体に任せる）
+  if (kinds.every((k) => k < 27)) return true;
+  return WINDS.every((w) => kinds.includes(w));
+}
+
 /** 5 枚の手を判定する。和了形でなければ null */
 export function evaluateFive(kinds: readonly Kind[], rules: HandRules): Evaluation | null {
   if (kinds.length !== 5) throw new Error('evaluateFive needs 5 tiles');
+  if (!mayWin(kinds)) return null;
   const c = counts(kinds);
   const n = (k: Kind) => c.get(k) ?? 0;
   const distinct = [...c.keys()];
@@ -179,8 +191,12 @@ export function evaluateFive(kinds: readonly Kind[], rules: HandRules): Evaluati
 /** 6 枚の三対子を判定する（対子 3 組だけ） */
 export function evaluateSix(kinds: readonly Kind[], rules: HandRules): Evaluation | null {
   if (kinds.length !== 6) throw new Error('evaluateSix needs 6 tiles');
-  const c = counts(kinds);
-  if (c.size !== 3 || ![...c.values()].every((v) => v === 2)) return null;
+  // 対子 3 組なら、どの牌も同じ種類がちょうど 2 枚ある
+  for (const k of kinds) {
+    let n = 0;
+    for (const x of kinds) if (x === k) n++;
+    if (n !== 2) return null;
+  }
   if (kinds.every((k) => k >= 27)) {
     return { yakuman: 1, han: 0, yaku: [yakumanEntry('三対子・字一色', 1)], noYaku: false };
   }

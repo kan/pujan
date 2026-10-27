@@ -41,7 +41,22 @@ export interface Win {
   points: number;
 }
 
-function combinations(n: number, k: number): number[][] {
+const comboCache = new Map<string, number[][]>();
+
+/**
+ * 0〜n-1 から k 個を選ぶ組み合わせ（番号の昇順）。withLast なら 0〜n-1 から k-1 個を選び、最後に n を足す
+ * （待ちの計算で、足した 1 枚を必ず含む組）。同じ引数は何度も使うので覚えておく。
+ */
+function combinations(n: number, k: number, withLast = false): number[][] {
+  const key = `${n},${k},${withLast}`;
+  const hit = comboCache.get(key);
+  if (hit) return hit;
+  const out = withLast ? combinations(n, k - 1).map((idx) => [...idx, n]) : makeCombinations(n, k);
+  comboCache.set(key, out);
+  return out;
+}
+
+function makeCombinations(n: number, k: number): number[][] {
   const out: number[][] = [];
   const acc: number[] = [];
   const rec = (start: number) => {
@@ -60,8 +75,10 @@ function combinations(n: number, k: number): number[][] {
 }
 
 /** 万能牌に当てはめる候補。3 枚以上のときは組み合わせが爆発するので、役になりそうな種類に絞る */
-function jokerCandidates(fixed: readonly Kind[], jokers: number): Kind[] {
-  if (jokers <= 2) return Array.from({ length: KIND_COUNT }, (_, k) => k);
+const ALL_KINDS: readonly Kind[] = Array.from({ length: KIND_COUNT }, (_, k) => k);
+
+function jokerCandidates(fixed: readonly Kind[], jokers: number): readonly Kind[] {
+  if (jokers <= 2) return ALL_KINDS;
   const s = new Set<Kind>([...DRAGONS, ...WINDS, ...ONES, ...NINES, ...GREEN]);
   for (const k of fixed) {
     for (const d of [-6, -3, -2, -1, 0, 1, 2, 3, 6]) {
@@ -87,25 +104,32 @@ function bonusEntries(sub: readonly Tile[], kinds: readonly Kind[], ctx: WinCont
   return extra;
 }
 
-export function bestWin(tiles: readonly Tile[], ctx: WinContext): Win | null {
-  if (tiles.length < 5) return null;
-  let best: Win | null = null;
-  const sizes = tiles.length >= 6 ? [5, 6] : [5];
+/**
+ * 和了形になる組（5 枚、6 枚以上あれば三対子の 6 枚も）を順に訪ねる。visit が true を返すと打ち切る。
+ * must を渡すと、その牌を含む組だけを訪ねる（待ちの計算で、足した 1 枚を含む組だけを見るため）。
+ * 訪ねる順は、組み合わせの番号順・万能牌の候補順で決まっている（いちばん高い手が同点のときの選び方が変わらないように）。
+ */
+function forEachWin(
+  tiles: readonly Tile[],
+  ctx: WinContext,
+  visit: (ev: Evaluation, sub: readonly Tile[], kinds: readonly Kind[]) => boolean | void,
+  must?: Tile,
+): void {
+  const all = must ? [...tiles, must] : tiles;
+  if (all.length < 5) return;
+  const sizes = all.length >= 6 ? [5, 6] : [5];
   for (const size of sizes) {
-    for (const idx of combinations(tiles.length, size)) {
-      const sub = idx.map((i) => tiles[i]);
+    const combos = must ? combinations(tiles.length, size, true) : combinations(all.length, size);
+    for (const idx of combos) {
+      const sub = idx.map((i) => all[i]);
       const fixed = sub.filter((t) => !ctx.isJoker(t.kind)).map((t) => t.kind);
       const jokers = size - fixed.length;
-      const candidates = jokerCandidates(fixed, jokers);
+      const candidates = jokers ? jokerCandidates(fixed, jokers) : ALL_KINDS;
+      let stop = false;
       const rec = (kinds: Kind[], left: number) => {
         if (!left) {
-          let ev = size === 5 ? evaluateFive(kinds, ctx.rules) : evaluateSix(kinds, ctx.rules);
-          if (!ev || (ctx.shibari && ev.noYaku)) return;
-          if (ctx.holdIds) ev = addHan(ev, bonusEntries(sub, kinds, ctx));
-          const points = basePoints(ev, ctx.noLimit);
-          if (!best || points > best.points) {
-            best = { evaluation: ev, tileIds: sub.map((t) => t.id), kinds: kinds.slice(), points };
-          }
+          const ev = size === 5 ? evaluateFive(kinds, ctx.rules) : evaluateSix(kinds, ctx.rules);
+          if (ev && !(ctx.shibari && ev.noYaku) && visit(ev, sub, kinds)) stop = true;
           return;
         }
         for (const k of candidates) {
@@ -113,24 +137,45 @@ export function bestWin(tiles: readonly Tile[], ctx: WinContext): Win | null {
           kinds.push(k);
           rec(kinds, left - 1);
           kinds.pop();
+          if (stop) return;
         }
       };
       rec(fixed.slice(), jokers);
+      if (stop) return;
     }
   }
+}
+
+export function bestWin(tiles: readonly Tile[], ctx: WinContext): Win | null {
+  let best: Win | null = null;
+  forEachWin(tiles, ctx, (found, sub, kinds) => {
+    const ev = ctx.holdIds ? addHan(found, bonusEntries(sub, kinds, ctx)) : found;
+    const points = basePoints(ev, ctx.noLimit);
+    if (!best || points > best.points) {
+      best = { evaluation: ev, tileIds: sub.map((t) => t.id), kinds: kinds.slice(), points };
+    }
+  });
   return best;
+}
+
+/** 和了形が 1 つでもあるか（must を渡すと、その牌を含む組だけを見る） */
+function hasWin(tiles: readonly Tile[], ctx: WinContext, must?: Tile): boolean {
+  let found = false;
+  forEachWin(tiles, ctx, () => (found = true), must);
+  return found;
 }
 
 /**
  * 待ち牌（あと 1 枚で和了れる種類）。万能牌が 2 枚以上あると計算が重く、ほぼ常に聴牌なので null を返す。
+ * 手元の牌だけでもう和了形があるなら、山にあるどの種類でも和了れる。
  */
 export function waits(tiles: readonly Tile[], ctx: WinContext): Kind[] | null {
   if (tiles.filter((t) => ctx.isJoker(t.kind)).length >= 2) return null;
-  const plain: WinContext = { ...ctx, holdIds: undefined };
   const out: Kind[] = [];
+  const already = hasWin(tiles, ctx);
   for (let k = 0; k < KIND_COUNT; k++) {
     if (!ctx.copies(k)) continue;
-    if (bestWin([...tiles, { id: -1, kind: k }], plain)) out.push(k);
+    if (already || hasWin(tiles, ctx, { id: -1, kind: k })) out.push(k);
   }
   return out;
 }

@@ -9,7 +9,8 @@
   "scripts": {
     "build": "tsc",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "sim": "tsc && node scripts/sim.mjs"
   },
   "devDependencies": {
     "typescript": "^6.0.3",

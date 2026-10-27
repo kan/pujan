@@ -7,7 +7,7 @@
 import { addHan, addYakuman, yakuEntry, type YakuEntry } from './hand.js';
 import type { ConsumableId, Modifiers } from './items.js';
 import { shuffle } from './rng.js';
-import { basePoints, finalizeScore, type FinalScore } from './score.js';
+import { basePoints, finalizeScore, type FinalizeContext, type FinalScore } from './score.js';
 import { HAKU, KIND_COUNT, byKind, doraOf, type Kind, type Tile } from './tiles.js';
 import { bestWin, waits, type Win, type WinContext } from './win.js';
 
@@ -49,6 +49,9 @@ export type KyokuAction =
   | { type: 'tsumo' }
   | { type: 'redeal' }
   | { type: 'consumable'; id: ConsumableId };
+
+/** 消耗品を除いた局の操作（消耗品は持ち物から外す必要があるので、ランの側で扱う） */
+export type KyokuMove = Exclude<KyokuAction, { type: 'consumable' }>;
 
 export type KyokuResult =
   | {
@@ -170,7 +173,7 @@ export function winContext(s: KyokuState, withBonus: boolean): WinContext {
 }
 
 /** 今のツモで和了れる手。局の状況で決まる翻（リーチ・海底・天和など）もここで足す */
-function judge(s: KyokuState): Win | null {
+export function judge(s: KyokuState): Win | null {
   const w = bestWin(allTiles(s), winContext(s, true));
   if (!w) return null;
   const m = s.setup.mods;
@@ -219,7 +222,8 @@ function afterAction(s: KyokuState): KyokuState {
 }
 
 function tileAt(s: KyokuState, zone: Zone, index: number): Tile {
-  const t = zone === 'hand' ? s.hand[index] : zone === 'drawn' ? s.drawn[index] : s.hold[index];
+  const list = zone === 'hand' ? s.hand : zone === 'drawn' ? s.drawn : zone === 'hold' ? s.hold : null;
+  const t = list && Number.isInteger(index) ? list[index] : undefined;
   if (!t) throw new Error(`no tile at ${zone}[${index}]`);
   return t;
 }
@@ -266,19 +270,24 @@ export function visibleNext(s: KyokuState): Tile[] {
   return n ? s.wall.slice(-n).reverse() : [];
 }
 
+function discard(s: KyokuState, zone: Zone, index: number): KyokuState {
+  const [next, t] = removeTile(s, zone, index);
+  return afterAction({ ...next, river: [...s.river, t], discards: s.discards + 1 });
+}
+
 export function step(s: KyokuState, action: KyokuAction): KyokuState {
   if (s.result) throw new Error('kyoku has ended');
   if (!isActing(s)) throw new Error('not waiting for an action');
   switch (action.type) {
-    case 'discard': {
+    case 'discard':
       if (s.riichi && action.zone !== 'drawn') throw new Error('riichi: only the drawn tile can be discarded');
-      const [next, t] = removeTile(s, action.zone, action.index);
-      return afterAction({ ...next, river: [...s.river, t], discards: s.discards + 1 });
-    }
+      return discard(s, action.zone, action.index);
     case 'hold': {
       if (s.riichi) throw new Error('riichi: cannot hold');
+      // 操作ログは信頼できない入力なので、枠の番号と置き場所もここで確かめる
+      if (action.zone !== 'hand' && action.zone !== 'drawn') throw new Error('can hold only from hand or drawn');
       const slot = action.slot ?? s.hold.indexOf(null);
-      if (slot < 0 || s.hold[slot]) throw new Error('no empty hold slot');
+      if (!Number.isInteger(slot) || slot < 0 || slot >= s.hold.length || s.hold[slot]) throw new Error('no empty hold slot');
       const [next, t] = removeTile(s, action.zone, action.index);
       const hold = next.hold.slice();
       hold[slot] = t;
@@ -286,8 +295,9 @@ export function step(s: KyokuState, action: KyokuAction): KyokuState {
     }
     case 'riichi': {
       if (!canRiichi(s, action.zone, action.index)) throw new Error('cannot riichi');
+      // 宣言の打牌はどの牌でもよい（ツモ切りに縛られるのは次の巡から）
       const declared: KyokuState = { ...s, riichi: { turn: s.turn, stick: s.setup.mods.riichiCost } };
-      return step(declared, { type: 'discard', zone: action.zone, index: action.index });
+      return discard(declared, action.zone, action.index);
     }
     case 'redeal': {
       if (!canRedeal(s)) throw new Error('cannot redeal');
@@ -301,6 +311,8 @@ export function step(s: KyokuState, action: KyokuAction): KyokuState {
       return useConsumable(s, action.id);
     case 'tsumo':
       return declareWin(s);
+    default:
+      throw new Error(`unknown action: ${(action as { type: unknown }).type}`);
   }
 }
 
@@ -325,17 +337,10 @@ function useConsumable(s: KyokuState, id: ConsumableId): KyokuState {
   return { ...next, win: judge(next) };
 }
 
-function declareWin(s: KyokuState): KyokuState {
-  if (!s.win) throw new Error('no winning hand');
-  let ev = s.win.evaluation;
-  let ura: Tile[] = [];
-  if (s.riichi) {
-    ura = s.wall.slice(0, s.setup.mods.uraIndicators);
-    const n = ura.reduce((a, t) => a + s.win!.kinds.filter((k) => k === doraOf(t.kind)).length, 0);
-    if (n) ev = addHan(ev, [yakuEntry('裏ドラ', n)]);
-  }
+/** 和了の点数を決める、局と持ち物の情報 */
+export function finalizeContext(s: KyokuState): FinalizeContext {
   const m = s.setup.mods;
-  const score = finalizeScore(ev, {
+  return {
     noLimit: m.noLimit,
     yakuLevels: s.setup.yakuLevels,
     cheapHandTimes4: m.cheapHandTimes4,
@@ -345,7 +350,19 @@ function declareWin(s: KyokuState): KyokuState {
     riichiBonusPerTurn: m.riichiBonusPerTurn,
     honba: s.setup.honba,
     honbaBonus: m.honbaBonus,
-  });
+  };
+}
+
+function declareWin(s: KyokuState): KyokuState {
+  if (!s.win) throw new Error('no winning hand');
+  let ev = s.win.evaluation;
+  let ura: Tile[] = [];
+  if (s.riichi) {
+    ura = s.wall.slice(0, s.setup.mods.uraIndicators);
+    const n = ura.reduce((a, t) => a + s.win!.kinds.filter((k) => k === doraOf(t.kind)).length, 0);
+    if (n) ev = addHan(ev, [yakuEntry('裏ドラ', n)]);
+  }
+  const score = finalizeScore(ev, finalizeContext(s));
   const used = new Set(s.win.tileIds);
   const gold = allTiles(s).filter((t) => used.has(t.id) && t.gold).length;
   const win = { ...s.win, evaluation: ev, points: score.points };

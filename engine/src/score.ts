@@ -68,7 +68,8 @@ export function finalizeScore(ev: Evaluation, ctx: FinalizeContext): FinalScore 
     label: y.name,
     value: y.yakuman ? (y.yakuman === 2 ? 'ダブル役満' : '役満') : `${y.han}翻`,
   }));
-  if (ev.noYaku) lines.unshift({ label: '役なし', value: '' });
+  // ボーナスの翻（ドラ・門前など）が付いたときは、その行だけを出す（役なしのままなのは noYaku で分かる）
+  if (!ev.yaku.length) lines.unshift({ label: '役なし', value: '' });
   let points = basePoints(ev, ctx.noLimit);
   const limit = ev.yakuman ? null : limitName(ev.han, ctx.noLimit);
   if (limit) lines.push({ label: limit, value: `${points.toLocaleString('ja-JP')}点` });

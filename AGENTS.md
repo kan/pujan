@@ -11,13 +11,13 @@
 
 ## 現在の状態
 
-`docs/SPEC.md` §6「開発フェーズ」のフェーズ 0（骨組み）まで。
+`docs/SPEC.md` §6「開発フェーズ」のフェーズ 1（エンジンの仕上げ）まで。
 
-- `engine/`: 役判定・点数・局の状態機械・ラン・ショップを移植済み。テストあり（`engine/tests/`）
+- `engine/`: 役判定・点数・局の状態機械・ラン・ショップ・操作ログの再生（`game.ts`）・シミュレーション（`sim.ts`）。テストあり（`engine/tests/`。プロトタイプとの突き合わせを含む）
 - `frontend/`: 仮の画面だけ（engine とのつなぎの確認用）。本来の画面はフェーズ 2 でプロトタイプから移植する
 - `backend/`: `/api/health` と ID 基盤への中継だけ。`wrangler.jsonc` はローカルの設定だけで、dev・production の環境はまだない
 
-次に取りかかるのはフェーズ 1（エンジンの仕上げ）。
+次に取りかかるのはフェーズ 2（画面）。
 
 ## リポジトリ構成
 
@@ -46,7 +46,8 @@ vegtab（kan/vegtab）と同じ構成にそろえる。特別な理由がない�
 - `engine/` に Vue・Cloudflare・DOM に依存するコードを入れない。frontend と backend（操作ログの再生による検証）の両方が使う
 - 状態は書き換えず、`step()` などが新しい状態を返す。乱数（xorshift32）の状態も状態に含め、同じシードと操作列から必ず同じ結果になるようにする
 - アイテムの効果は `items.ts` の `Modifiers` への差分として書き、効く場所（`win.ts`・`score.ts`・`kyoku.ts`）で読む。アイテムを足すたびに本体の分岐を増やさない
-- 役・点数・確率を変えたらテストも直す。プロトタイプと結果が変わる変更は、意図したものか利用者に確かめる
+- 役・点数・確率を変えたらテストも直す。プロトタイプと結果が変わる変更は、意図したものか利用者に確かめる（`engine/tests/prototype.test.ts` が落ちる）
+- 同じ操作ログから違う結果になる変更（役・点数・乱数の使い方・ショップなど）をしたら、`game.ts` の `ENGINE_VERSION` を上げる
 
 ## 開発の手順
 
@@ -66,6 +67,16 @@ backend の型は `npm run cf-typegen -w backend` で `backend/worker-configurat
 npm test                 # 全 workspace
 npm test -w engine       # engine だけ
 ```
+
+### バランスのシミュレーション
+
+```bash
+npm run sim -w engine -- deal                 # 配牌 5 枚で形ができる確率
+npm run sim -w engine -- target --hold 0      # 目標の形を狙う AI の 12 巡の和了率
+npm run sim -w engine -- runs --runs 100      # アイテムごとに、ランでどの場まで進めたか
+```
+
+オプションは `engine/scripts/sim.mjs` の先頭にある。`runs` は 1 アイテム 100 ランで数十秒かかる。
 
 ### ローカル開発の起動
 

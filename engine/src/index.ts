@@ -6,3 +6,4 @@ export * from './win.js';
 export * from './items.js';
 export * from './kyoku.js';
 export * from './run.js';
+export * from './game.js';

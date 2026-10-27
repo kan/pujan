@@ -66,6 +66,26 @@ describe('局の進行', () => {
     expect(a.result).toEqual(b.result);
   });
 
+  it('手牌を捨ててリーチを宣言できる（宣言の打牌はツモ切りでなくてよい）', () => {
+    let found = 0;
+    for (let seed = 1; seed <= 300 && found < 3; seed++) {
+      let k = newKyoku(seed);
+      for (let guard = 0; guard < 12 && isActing(k) && !k.riichi; guard++) {
+        const i = k.hand.findIndex((_, j) => canRiichi(k, 'hand', j));
+        if (i >= 0) {
+          const tile = k.hand[i];
+          k = step(k, { type: 'riichi', zone: 'hand', index: i });
+          expect(k.riichi).not.toBeNull();
+          expect(k.river.at(-1)).toEqual(tile);
+          found++;
+          break;
+        }
+        k = step(k, { type: 'discard', zone: 'drawn', index: 0 });
+      }
+    }
+    expect(found).toBe(3);
+  });
+
   it('12巡で必ず終わる', () => {
     for (let seed = 1; seed <= 30; seed++) {
       const k = playOut(newKyoku(seed), seed);

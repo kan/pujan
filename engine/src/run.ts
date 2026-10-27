@@ -23,11 +23,12 @@ import {
   type CharmId,
   type ConsumableId,
   type EquipId,
+  type Loadout,
   type ModId,
 } from './items.js';
 import { defaultComposition, startKyoku, type Composition, type KyokuResult, type KyokuState } from './kyoku.js';
 import { createRng, mix32, nextFloat, nextInt } from './rng.js';
-import { EAST, type Kind } from './tiles.js';
+import { EAST, KIND_COUNT, type Kind } from './tiles.js';
 
 export const WAVE_TARGETS: readonly number[] = [1000, 2000, 4000, 8000];
 export const WAVE_COUNT = 4;
@@ -104,7 +105,11 @@ function newRound(rng: number, wave: number): [number, Round] {
   return [r, { kyoku: 0, score: 0, dealer, honba: 0, boss: BOSSES[boss].id, target: WAVE_TARGETS[wave], log: [] }];
 }
 
-export function createRun(seed: number, base: BaseRules = DEFAULT_BASE_RULES): RunState {
+/**
+ * 新しいラン。start は最初から持つお守りと設備（今はシミュレーションだけが使う。
+ * 雀士などで画面から使うときは、操作ログにも残して再生できるようにする）。
+ */
+export function createRun(seed: number, base: BaseRules = DEFAULT_BASE_RULES, start?: Loadout): RunState {
   const [rng, round] = newRound(createRng(mix32(seed)), 0);
   return {
     seed,
@@ -112,8 +117,8 @@ export function createRun(seed: number, base: BaseRules = DEFAULT_BASE_RULES): R
     base,
     wave: 0,
     money: START_MONEY,
-    charms: [],
-    equipment: [],
+    charms: [...(start?.charms ?? [])],
+    equipment: [...(start?.equipment ?? [])],
     consumables: [],
     yakuLevels: {},
     composition: defaultComposition(base.redFives),
@@ -271,13 +276,22 @@ export function reroll(run: RunState): RunState {
   return rollOffers({ ...run, money: run.money - REROLL_PRICE });
 }
 
+/**
+ * 配列の index 番目。操作ログの index は信頼できない入力なので、整数で範囲内のときだけ返す
+ * （"length" のような値で配列の長さを拾わないように）。
+ */
+function itemAt<T>(list: readonly T[] | null, index: number): T | undefined {
+  return list && Number.isInteger(index) && index >= 0 && index < list.length ? list[index] : undefined;
+}
+
 export function sellCharm(run: RunState, index: number): RunState {
-  if (!run.charms[index]) throw new Error('no such charm');
+  if (run.phase !== 'shop' || !itemAt(run.charms, index)) throw new Error('no such charm');
   return { ...run, charms: run.charms.filter((_, i) => i !== index), money: run.money + SELL_PRICE };
 }
 
 /** 牌の改造が選べる種類か */
 export function canModify(comp: Composition, mod: ModId, k: Kind): boolean {
+  if (!Number.isInteger(k) || k < 0 || k >= KIND_COUNT) return false;
   if (mod === 'nuki') return comp.count[k] > 0;
   if (mod === 'utsushi') return comp.count[k] > 0 && comp.count[k] < 5;
   if (mod === 'shu') return comp.red[k] < comp.count[k];
@@ -299,8 +313,8 @@ function applyMod(comp: Composition, mod: ModId, k: Kind): Composition {
 /** 品物を買う。牌の改造は対象の種類（target）が要る */
 export function buy(run: RunState, index: number, target?: Kind): RunState {
   const offers = run.shop;
-  const o = offers?.[index];
-  if (!offers || !o || o.sold) throw new Error('no such offer');
+  const o = itemAt(offers, index);
+  if (run.phase !== 'shop' || !offers || !o || o.sold) throw new Error('no such offer');
   if (run.money < o.price) throw new Error('not enough money');
   const next: RunState = { ...run, money: run.money - o.price, shop: offers.map((x, i) => (i === index ? { ...x, sold: true } : x)) };
   switch (o.kind) {
@@ -332,6 +346,6 @@ export function leaveShop(run: RunState): RunState {
 
 /** 局の中で消耗品を使ったら持ち物から外す（局の操作は kyoku.ts の step で行う） */
 export function consumeConsumable(run: RunState, index: number): RunState {
-  if (!run.consumables[index]) throw new Error('no such consumable');
+  if (!itemAt(run.consumables, index)) throw new Error('no such consumable');
   return { ...run, consumables: run.consumables.filter((_, i) => i !== index) };
 }
