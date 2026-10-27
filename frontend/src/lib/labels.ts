@@ -7,6 +7,9 @@ import {
   KYOKU_PER_WAVE,
   MODS,
   WAVE_COUNT,
+  characterName,
+  danName,
+  type NewUnlocks,
   type BossId,
   type CharmId,
   type Composition,
@@ -25,6 +28,19 @@ export const charmDef = (id: CharmId) => CHARMS.find((c) => c.id === id)!;
 export const equipDef = (id: EquipId) => EQUIPMENT.find((c) => c.id === id)!;
 export const consumableDef = (id: ConsumableId) => CONSUMABLES.find((c) => c.id === id)!;
 export const bossDef = (id: BossId) => BOSSES.find((c) => c.id === id)!;
+
+/** 雀士と段位（「うさぎ・二段」）。ランキングや場の案内に出す */
+export const startLabel = (s: { character: string; dan: number }) => `${characterName(s.character)}・${danName(s.dan)}`;
+
+/** 新しく解禁されたものを 1 行ずつ（「雀士「うさぎ」」「役の巻物「混一色」」） */
+export function unlockLines(u: NewUnlocks): string[] {
+  return [
+    ...u.characters.map((id) => `雀士「${characterName(id)}」`),
+    ...u.dans.map((d) => `段位「${danName(d)}」`),
+    ...u.scrolls.map((y) => `役の巻物「${y}」がショップに並ぶ`),
+    ...u.charms.map((id) => `お守り「${charmDef(id).name}」がショップに並ぶ`),
+  ];
+}
 
 /** 局の名前（「東2局 1本場（親）」） */
 export function roundLabel(wave: number, kyoku: number, honba: number, dealer: boolean): string {

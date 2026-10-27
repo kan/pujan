@@ -43,7 +43,11 @@ const ITEM_SECTIONS = [
     title: `お守り（${MAX_CHARMS}つまで。売ると祝儀${SELL_PRICE}）`,
     rows: [...CHARMS]
       .sort((a, b) => axisOrder.indexOf(a.axis) - axisOrder.indexOf(b.axis))
-      .map((c) => ({ name: c.name, tag: c.axis, description: c.description })),
+      .map((c) => {
+        // 役で解禁されるお守りは、その条件を説明に添える
+        const description = c.unlockYaku ? `${c.description}（${c.unlockYaku}で和了るとショップに並ぶ）` : c.description;
+        return { name: c.name, tag: c.axis, description };
+      }),
   },
   { title: '設備（ずっと効く強化）', rows: plain(EQUIPMENT) },
   { title: `消耗品（${MAX_CONSUMABLES}つまで。局の中で1回使う。リーチ中は使えない）`, rows: plain(CONSUMABLES) },
@@ -131,6 +135,7 @@ const helpGuides = GUIDE_PAGES.filter((g) => g.inHelp);
         <section class="guide">
           <h3>役の巻物</h3>
           <p class="note">指定の役を含む和了の点数が×1.5になります。重ねがけできます（2本で×2.25）。</p>
+          <p class="note">その役で一度和了ると、ショップに並ぶようになります。</p>
         </section>
         <section class="guide">
           <h3>組み合わせのヒント</h3>

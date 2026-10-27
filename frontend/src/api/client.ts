@@ -5,7 +5,7 @@
  * ID は起動時に POST /api/id/session でもらう（なければ発行、あれば延長）。
  * API が 410（退会した ID）を返したら、ID をもらい直してもう一度だけ送る。
  */
-import type { RunLog, RunSummary } from '@pujan/engine';
+import type { Progress, RunChoice, RunLog, RunStart, RunSummary } from '@pujan/engine';
 
 export class ApiError extends Error {
   constructor(
@@ -78,24 +78,33 @@ export interface Me {
   id: string;
   /** ランキングに出す名前（公開に同意する前は null） */
   name: string | null;
+  /** サーバーに記録した解禁の状態 */
+  progress: Progress;
 }
 
 export interface StartedRun {
   id: string;
   seed: number;
   engineVersion: number;
+  /** 始めの条件（解禁済みの役はサーバーの記録から） */
+  start: RunStart;
 }
 
 export interface FinishedRun extends RunSummary {
   week: string;
   /** その週の最高記録になった */
   best: boolean;
+  /** 記録したあとの解禁の状態 */
+  progress: Progress;
 }
+
+/** ランキングの 1 行の成績（段位 → 突破した場の数 → 合計点の順。雀士は表示だけ） */
+type RankedSummary = RunSummary & { dan: number; character: string };
 
 export interface WeeklyRanking {
   week: string;
-  entries: (RunSummary & { rank: number; name: string; isMe: boolean })[];
-  me: (RunSummary & { rank: number | null }) | null;
+  entries: (RankedSummary & { rank: number; name: string; isMe: boolean })[];
+  me: (RankedSummary & { rank: number | null }) | null;
 }
 
 /** ランの開始を待つ上限。つながりが悪いときは、待たせずに端末だけのランで始める */
@@ -106,7 +115,7 @@ const FINISH_TIMEOUT_MS = 15000;
 export const api = {
   me: () => request<Me>('/api/me'),
   registerName: (name: string) => post<{ name: string }>('/api/profile', { name }),
-  startRun: () => post<StartedRun>('/api/runs', undefined, AbortSignal.timeout(START_TIMEOUT_MS)),
+  startRun: (choice: RunChoice) => post<StartedRun>('/api/runs', choice, AbortSignal.timeout(START_TIMEOUT_MS)),
   finishRun: (runId: string, log: RunLog) =>
     post<FinishedRun>(`/api/runs/${encodeURIComponent(runId)}/finish`, { log }, AbortSignal.timeout(FINISH_TIMEOUT_MS)),
   weeklyRanking: (week?: string) =>

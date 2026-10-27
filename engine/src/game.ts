@@ -5,8 +5,8 @@
  * 操作の列とシードと基本ルールを並べたものが操作ログ（RunLog）で、replay() で同じ結果を作り直せる。
  * 乱数はすべて状態に入っているので、同じログからは必ず同じ結果になる。
  */
-import { DEFAULT_BASE_RULES, type BaseRules, type Loadout } from './items.js';
 import { step, type KyokuMove, type KyokuState } from './kyoku.js';
+import { DEFAULT_START, isRunStart, type RunStart } from './progression.js';
 import {
   beginKyoku,
   buy,
@@ -16,6 +16,7 @@ import {
   reroll,
   sellCharm,
   settleKyoku,
+  type RunOptions,
   type RunState,
 } from './run.js';
 import type { Kind } from './tiles.js';
@@ -24,7 +25,7 @@ import type { Kind } from './tiles.js';
  * エンジンの版。同じ操作ログから違う結果になる変更（役・点数・乱数の使い方・ショップなど）をしたら 1 つ上げる。
  * サーバーは記録の版と今の版が違うログを再生で検証できない（§5.3）。
  */
-export const ENGINE_VERSION = 1;
+export const ENGINE_VERSION = 2;
 
 /** プレイヤーの操作 */
 export type GameAction =
@@ -53,7 +54,8 @@ export interface GameState {
 export interface RunLog {
   engineVersion: number;
   seed: number;
-  base: BaseRules;
+  /** 始めの条件（雀士・段位・解禁済みの役）。ルールと始めの持ち物はここから決まる */
+  start: RunStart;
   actions: GameAction[];
 }
 
@@ -63,9 +65,9 @@ export const isFinished = (g: GameState): boolean => g.run.phase === 'over' || g
 const withKyoku = (run: RunState, previous: KyokuState | null): GameState =>
   run.phase === 'kyoku' ? { ...beginKyoku(run), previous } : { run, kyoku: null, previous };
 
-/** 新しいラン。start は最初から持つお守りと設備（createRun を参照） */
-export function createGame(seed: number, base: BaseRules = DEFAULT_BASE_RULES, start?: Loadout): GameState {
-  return withKyoku(createRun(seed, base, start), null);
+/** 新しいラン（options は createRun を参照） */
+export function createGame(seed: number, options: RunOptions = {}): GameState {
+  return withKyoku(createRun(seed, options), null);
 }
 
 function activeKyoku(g: GameState): KyokuState {
@@ -113,19 +115,20 @@ export function apply(g: GameState, action: GameAction): GameState {
   }
 }
 
-export function newLog(seed: number, base: BaseRules = DEFAULT_BASE_RULES): RunLog {
-  return { engineVersion: ENGINE_VERSION, seed, base, actions: [] };
+export function newLog(seed: number, start: RunStart = DEFAULT_START): RunLog {
+  return { engineVersion: ENGINE_VERSION, seed, start, actions: [] };
 }
 
 /**
- * 操作ログを再生して、最後の状態を返す。版が違うログや、途中にできない操作があるログは例外を投げる。
- * ランが終わる前で止まっているログ（途中のラン）も再生できる。
+ * 操作ログを再生して、最後の状態を返す。版が違うログ、始めの条件の形が違うログ、途中にできない操作があるログは
+ * 例外を投げる。ランが終わる前で止まっているログ（途中のラン）も再生できる。
  */
 export function replay(log: RunLog): GameState {
   if (log.engineVersion !== ENGINE_VERSION) {
     throw new Error(`engine version mismatch: log ${log.engineVersion}, engine ${ENGINE_VERSION}`);
   }
-  let g = createGame(log.seed, log.base);
+  if (!isRunStart(log.start)) throw new Error('invalid run start');
+  let g = createGame(log.seed, { start: log.start });
   log.actions.forEach((a, i) => {
     try {
       g = apply(g, a);

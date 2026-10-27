@@ -1,6 +1,17 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { env } from 'cloudflare:test';
-import { apply, createGame, isFinished, newLog, weekOf, type GameAction, type RunLog } from '@pujan/engine';
+import {
+  apply,
+  createGame,
+  DEFAULT_START,
+  isFinished,
+  newLog,
+  weekOf,
+  type GameAction,
+  type Progress,
+  type RunLog,
+  type RunStart,
+} from '@pujan/engine';
 import { botAction } from '../../engine/src/sim';
 import { call, get, idIssuer, newUser, ORIGIN, post, resetDb, type TestUser } from './helpers';
 import { createTestIdIssuer } from './kan-game/test-id-cookie';
@@ -9,9 +20,9 @@ import { GameService } from '../src/game-service';
 beforeEach(resetDb);
 
 /** そのシードのランを AI に終わりまで遊ばせた操作ログ（ショップでは何も買わない） */
-function playedLog(seed: number): RunLog {
-  const log = newLog(seed);
-  let g = createGame(seed);
+function playedLog(seed: number, start: RunStart = DEFAULT_START): RunLog {
+  const log = newLog(seed, start);
+  let g = createGame(seed, { start });
   const act = (a: GameAction) => {
     g = apply(g, a);
     log.actions.push(a);
@@ -24,10 +35,12 @@ function playedLog(seed: number): RunLog {
   return log;
 }
 
+type Started = { id: string; seed: number; start: RunStart };
+
 /** ランを始め、AI に遊ばせて記録を送る */
-async function playRun(user: TestUser) {
-  const started = (await (await post('/api/runs', user)).json()) as { id: string; seed: number };
-  const log = playedLog(started.seed);
+async function playRun(user: TestUser, choice?: { character: string; dan: number }) {
+  const started = (await (await post('/api/runs', user, choice)).json()) as Started;
+  const log = playedLog(started.seed, started.start);
   const res = await post(`/api/runs/${started.id}/finish`, user, { log });
   return { started, log, res };
 }
@@ -62,11 +75,11 @@ describe('ID の Cookie', () => {
 describe('名前と公開への同意', () => {
   it('同意する前は名前がなく、登録すると名前が付く', async () => {
     const user = await newUser();
-    expect(await (await get('/api/me', user)).json()).toEqual({ id: user.id, name: null });
+    expect(await (await get('/api/me', user)).json()).toMatchObject({ id: user.id, name: null });
     const res = await post('/api/profile', user, { name: '雀士A' });
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ name: '雀士A' });
-    expect(await (await get('/api/me', user)).json()).toEqual({ id: user.id, name: '雀士A' });
+    expect(await (await get('/api/me', user)).json()).toMatchObject({ id: user.id, name: '雀士A' });
   });
 
   it('ほかの ID の名前は 409、規則に合わない名前は 400', async () => {
@@ -102,14 +115,15 @@ describe('ランの記録', () => {
     expect(await again.json()).toEqual({ ...first, duplicate: true });
   });
 
-  it('別のシードのログ、終わっていないログ、ルールを変えたログ、できない操作のあるログは 422', async () => {
+  it('別のシードのログ、終わっていないログ、始めの条件を変えたログ、できない操作のあるログは 422', async () => {
     const user = await newUser();
-    const started = (await (await post('/api/runs', user)).json()) as { id: string; seed: number };
+    const started = (await (await post('/api/runs', user)).json()) as Started;
     const log = playedLog(started.seed);
     const bad: RunLog[] = [
       playedLog(started.seed + 1),
       { ...log, actions: log.actions.slice(0, 5) },
-      { ...log, base: { ...log.base, holdSlots: 4 } },
+      { ...log, start: { ...log.start, character: 'speed' } },
+      { ...log, start: { ...log.start, unlockedYaku: ['役牌'] } },
       { ...log, actions: [{ type: 'reroll' }, ...log.actions] },
     ];
     for (const b of bad) expect((await post(`/api/runs/${started.id}/finish`, user, { log: b })).status).toBe(422);
@@ -160,16 +174,69 @@ describe('ランの記録', () => {
   });
 });
 
+describe('引き継ぎ（雀士・段位・役の解禁）', () => {
+  const me = async (user: TestUser) => ((await (await get('/api/me', user)).json()) as { progress: Progress }).progress;
+
+  it('はじめは何も解禁されていない。まだ選べない雀士や段位では始められない', async () => {
+    const user = await newUser();
+    expect(await me(user)).toEqual({ yakuWon: [], bestWaves: 0, danCleared: -1 });
+    expect((await post('/api/runs', user, { character: 'speed', dan: 0 })).status).toBe(403);
+    expect((await post('/api/runs', user, { character: 'standard', dan: 1 })).status).toBe(403);
+    expect((await post('/api/runs', user, { character: 'standard', dan: 'x' })).status).toBe(400);
+    const started = (await (await post('/api/runs', user, { character: 'standard', dan: 0 })).json()) as Started;
+    expect(started.start).toEqual(DEFAULT_START);
+  });
+
+  it('記録したランで解禁が進み、次のランの始めの条件に入る', async () => {
+    const user = await newUser();
+    const { res } = await playRun(user);
+    const body = (await res.json()) as { progress: Progress; wavesCleared: number };
+    expect(body.progress.yakuWon.length).toBeGreaterThan(0);
+    expect(body.progress.bestWaves).toBe(body.wavesCleared);
+    expect(await me(user)).toEqual(body.progress);
+    const next = (await (await post('/api/runs', user)).json()) as Started;
+    expect(next.start.unlockedYaku).toEqual(body.progress.yakuWon);
+  });
+
+  it('解禁は減らない（記録の悪いランのあとも残る）', async () => {
+    const user = await newUser();
+    await env.DB.prepare('INSERT INTO progress (account_id, yaku_won, best_waves, dan_cleared, updated_at) VALUES (?, ?, ?, ?, ?)')
+      .bind(user.id, JSON.stringify(['プチ国士']), 4, 2, 1)
+      .run();
+    const { res } = await playRun(user, { character: 'oya', dan: 3 });
+    expect(res.status).toBe(200);
+    const p = await me(user);
+    expect(p.yakuWon).toContain('プチ国士');
+    expect(p.bestWaves).toBe(4);
+    expect(p.danCleared).toBeGreaterThanOrEqual(2);
+    expect([...p.yakuWon].sort()).toEqual(p.yakuWon);
+  });
+});
+
 describe('週ごとのランキング', () => {
-  async function putBest(name: string | undefined, waves: number, score: number) {
+  async function putBest(name: string | undefined, waves: number, score: number, dan = 0) {
     const user = await newUser({ name });
     await env.DB.prepare(
-      'INSERT INTO weekly_best (week, account_id, run_id, waves_cleared, total_score, finished_at) VALUES (?, ?, ?, ?, ?, ?)',
+      'INSERT INTO weekly_best (week, account_id, run_id, dan, waves_cleared, total_score, finished_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
     )
-      .bind(weekOf(Date.now()), user.id, crypto.randomUUID(), waves, score, Date.now())
+      .bind(weekOf(Date.now()), user.id, crypto.randomUUID(), dan, waves, score, Date.now())
       .run();
     return user;
   }
+
+  it('段位が高いほうが上（突破した場の数より先に比べる）', async () => {
+    const a = await putBest('雀士A', 4, 50000, 0);
+    await putBest('雀士B', 1, 500, 2);
+    const ranking = (await (await get('/api/rankings/weekly', a)).json()) as {
+      entries: { rank: number; name: string; dan: number }[];
+      me: { rank: number };
+    };
+    expect(ranking.entries.map((e) => [e.rank, e.name, e.dan])).toEqual([
+      [1, '雀士B', 2],
+      [2, '雀士A', 0],
+    ]);
+    expect(ranking.me.rank).toBe(2);
+  });
 
   it('突破した場の数 → 合計点の順。同じ成績は同じ順位。名前のない ID は載らないが本人には成績を返す', async () => {
     const a = await putBest('雀士A', 2, 3000);
@@ -192,7 +259,7 @@ describe('週ごとのランキング', () => {
     expect(ranking.me?.rank).toBe(2);
 
     const mine = (await (await get('/api/rankings/weekly', anon)).json()) as { me: { rank: number | null; wavesCleared: number } };
-    expect(mine.me).toEqual({ rank: null, wavesCleared: 4, totalScore: 99999 });
+    expect(mine.me).toEqual({ rank: null, dan: 0, character: 'standard', wavesCleared: 4, totalScore: 99999 });
   });
 
   it('週は月曜の日付で指定する', async () => {
@@ -209,7 +276,7 @@ describe('退会（GameService.deleteAccount）', () => {
     const service = new GameService({} as never, env as never);
     await service.deleteAccount(user.id);
     await service.deleteAccount(user.id);
-    for (const table of ['runs', 'weekly_best', 'profiles']) {
+    for (const table of ['runs', 'weekly_best', 'profiles', 'progress']) {
       const left = await env.DB.prepare(`SELECT COUNT(*) AS n FROM ${table} WHERE account_id = ?`).bind(user.id).first<{ n: number }>();
       expect(left?.n).toBe(0);
     }

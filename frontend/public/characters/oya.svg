@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <g stroke="#1c1b18" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+    <!-- 大きな耳と長い鼻、どっしりした親のぞう。 -->
+    <path fill="#899fa8" d="M16 41L11 56Q32 63 53 56L48 41Z"/>
+    <path fill="#899fa8" d="M19 17C8 9 3 19 5 32C6 43 14 47 22 40H42C50 47 58 43 59 32C61 19 56 9 45 17Z"/>
+    <path fill="#b5bfc0" stroke="none" d="M15 21C9 17 8 26 10 33Q12 39 17 36ZM49 21C55 17 56 26 54 33Q52 39 47 36Z"/>
+    <path fill="#899fa8" d="M16 30C13 17 20 8 32 8C44 8 51 17 48 30C47 37 42 40 38 41V47C38 53 47 53 47 47C53 47 53 58 43 59C34 60 27 56 27 47V41C20 40 17 36 16 30Z"/>
+    <path fill="none" d="M24 27V29M40 27V29M30 43H35M30 48H35"/>
+    <path fill="#f4eedb" d="M21 35L18 43Q24 44 26 38M43 35L46 43Q40 44 38 38"/>
+    <path fill="#d8aa45" d="M26 10L24 4L31 7L36 4L39 10Q32 13 26 10Z"/>
+  </g>
+</svg>

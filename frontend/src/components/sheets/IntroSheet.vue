@@ -2,7 +2,8 @@
 /** 場の開始（docs/SPEC.md §2.3）。目標点、親番の局、オーラスのボス */
 import { computed } from 'vue';
 import { useGameStore } from '@/stores/game';
-import { WIND_NAMES, bossDef } from '@/lib/labels';
+import { WIND_NAMES, bossDef, startLabel } from '@/lib/labels';
+import CharacterIcon from '../CharacterIcon.vue';
 import SheetLayer from '../SheetLayer.vue';
 
 const store = useGameStore();
@@ -15,6 +16,8 @@ const boss = computed(() => bossDef(round.value.boss));
   <SheetLayer :label="`${wind}場`">
     <h2>{{ wind }}場<span class="pts">目標 {{ round.target.toLocaleString() }}点</span></h2>
     <div class="yakulist">
+      <span>雀士・段位</span>
+      <span><CharacterIcon :id="store.run.start.character" :size="22" /> {{ startLabel(store.run.start) }}</span>
       <span>親番</span><span>{{ wind }}{{ round.dealer + 1 }}局</span>
       <span>オーラスのボス</span><span>{{ boss.name }}</span>
     </div>

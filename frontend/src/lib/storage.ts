@@ -5,7 +5,15 @@
  * 保存先は小さなインターフェース越しに触る（テストで差し替えられるように。TAKO-SEN の core/storage.ts と同じ形）。
  * 保存先が使えないとき（Safari のプライベートモード、容量超過など）も、遊ぶことはできるようにする。
  */
-import type { BaseRules, RunLog } from '@pujan/engine';
+import {
+  EMPTY_PROGRESS,
+  isProgress,
+  isRunChoice,
+  isRunStart,
+  type Progress,
+  type RunChoice,
+  type RunLog,
+} from '@pujan/engine';
 
 export interface KeyValueStorage {
   getItem(key: string): string | null;
@@ -18,6 +26,8 @@ const RUN_ID_KEY = 'pujan.run-id.v1';
 const PENDING_KEY = 'pujan.pending.v1';
 const SETTLED_KEY = 'pujan.settled.v1';
 const TUTORIAL_KEY = 'pujan.tutorial-seen.v1';
+const PROGRESS_KEY = 'pujan.progress.v1';
+const CHOICE_KEY = 'pujan.choice.v1';
 
 /** 送れなかった記録を持っておく数（古いものから捨てる） */
 const MAX_PENDING = 5;
@@ -48,24 +58,12 @@ function write(storage: KeyValueStorage | null, key: string, value: unknown): vo
   }
 }
 
-function isBaseRules(v: unknown): v is BaseRules {
-  const b = v as Partial<BaseRules> | null;
-  return (
-    !!b &&
-    Number.isInteger(b.turns) &&
-    Number.isInteger(b.holdSlots) &&
-    Number.isInteger(b.next) &&
-    typeof b.redFives === 'boolean' &&
-    typeof b.haitei === 'boolean'
-  );
-}
-
 /** 保存してある操作ログ。形が合わなければ null（操作の中身の正しさは replay() が確かめる） */
 export function loadRunLog(storage: KeyValueStorage | null): RunLog | null {
   const v = read(storage, RUN_KEY) as Partial<RunLog> | null;
   if (!v || typeof v.seed !== 'number' || typeof v.engineVersion !== 'number' || !Array.isArray(v.actions)) return null;
-  // 基本ルールの項目が欠けたログは、再生できても壊れたランになるので読まない
-  if (!isBaseRules(v.base)) return null;
+  // 始めの条件が欠けたログ（雀士と段位ができる前のログなど）は読まない
+  if (!isRunStart(v.start)) return null;
   return v as RunLog;
 }
 
@@ -124,4 +122,30 @@ export function loadTutorialSeen(storage: KeyValueStorage | null): boolean {
 
 export function saveTutorialSeen(storage: KeyValueStorage | null): void {
   write(storage, TUTORIAL_KEY, true);
+}
+
+/**
+ * 端末に覚えている解禁の状態。サーバーの記録と端末だけのランの結果を足し合わせたもの
+ * （ランキングに載るランの始めの条件は、サーバーの記録で決まる）
+ */
+export function loadProgress(storage: KeyValueStorage | null): Progress {
+  const v = read(storage, PROGRESS_KEY);
+  return isProgress(v) ? v : EMPTY_PROGRESS;
+}
+
+export function saveProgress(storage: KeyValueStorage | null, p: Progress): void {
+  write(storage, PROGRESS_KEY, p);
+}
+
+/**
+ * 前のランで選んだ雀士と段位（次のランの準備で、はじめから選んでおく）。形が違えば標準・初段。
+ * 今の解禁の状態で選べるかは、使う側が clampChoice で収める
+ */
+export function loadChoice(storage: KeyValueStorage | null): RunChoice {
+  const v = read(storage, CHOICE_KEY);
+  return isRunChoice(v) ? { character: v.character, dan: v.dan } : { character: 'standard', dan: 0 };
+}
+
+export function saveChoice(storage: KeyValueStorage | null, choice: RunChoice): void {
+  write(storage, CHOICE_KEY, choice);
 }

@@ -6,9 +6,26 @@
  */
 import { defineStore } from 'pinia';
 import { ref } from 'vue';
-import type { RunLog } from '@pujan/engine';
+import {
+  mergeProgress,
+  newUnlocks,
+  progressAfter,
+  type NewUnlocks,
+  type Progress,
+  type RunChoice,
+  type RunLog,
+  type RunState,
+} from '@pujan/engine';
 import { api, ApiError, ensureId, type FinishedRun } from '@/api/client';
-import { browserStorage, loadPending, loadSettledRunId, savePending, saveSettledRunId } from '@/lib/storage';
+import {
+  browserStorage,
+  loadPending,
+  loadProgress,
+  loadSettledRunId,
+  savePending,
+  saveProgress,
+  saveSettledRunId,
+} from '@/lib/storage';
 
 /** 今のランの記録の様子（ラン終了のシートに出す） */
 export type Submission =
@@ -34,13 +51,36 @@ export const useAccountStore = defineStore('account', () => {
   /** kan-game.app の名前（ほかのゲームで登録したもの）。あれば、ここでは公開への同意だけを求める */
   const kanGameName = ref<string | null>(null);
   const submission = ref<Submission | null>(null);
+  /** 解禁の状態（サーバーの記録と、端末だけのランの結果を合わせたもの） */
+  const progress = ref<Progress>(loadProgress(storage));
+  /**
+   * サーバーに記録してある解禁の状態（まだ聞いていなければ null）。ランキングに載るランで選べるのはこちらの範囲だけ
+   * （端末だけのランで解禁したものは、サーバーが 403 で断る）
+   */
+  const serverProgress = ref<Progress | null>(null);
+  /** 端末だけのランになった理由（直前に始めたランについて。ラン終了のシートに出す） */
+  const localReason = ref<'offline' | 'locked'>('offline');
   /** 送っている途中の記録（新しいランを始める前に待つ） */
   let sending: Promise<void> = Promise.resolve();
+  /** 名前と解禁の状態を聞いている途中（端末だけのランを始める前に待つ） */
+  let loadingMe: Promise<void> = Promise.resolve();
 
-  async function loadMe() {
-    kanGameName.value = (await ensureId())?.name ?? null;
-    const me = await orNull(api.me());
-    if (me) name.value = me.name;
+  function loadMe(): Promise<void> {
+    loadingMe = (async () => {
+      kanGameName.value = (await ensureId())?.name ?? null;
+      const me = await orNull(api.me());
+      if (me) {
+        name.value = me.name;
+        absorbServerProgress(me.progress);
+      }
+    })();
+    return loadingMe;
+  }
+
+  /** サーバーの解禁の状態を受け取り、端末の状態にも足す */
+  function absorbServerProgress(p: Progress) {
+    serverProgress.value = p;
+    absorbProgress(p);
   }
 
   /** 名前を登録して公開に同意する。失敗したら理由のコード */
@@ -54,15 +94,41 @@ export const useAccountStore = defineStore('account', () => {
   }
 
   /**
-   * ランキングに載せるランを始める。サーバーにつながらなければ null（端末だけのランにする）。
+   * ランキングに載せるランを始める。サーバーにつながらない、またはサーバーの記録ではまだ選べない雀士・段位なら
+   * null（端末だけのランにする）。
    * サーバーは新しいランを始めると、終わっていない前のランを記録できなくする。そのため、前のランの記録を送り終えてから始め、
    * 送り直し待ちが残っている（送れなかった）ときは、その記録を失わないように端末だけのランにする
    */
-  async function startRankedRun() {
+  async function startRankedRun(choice: RunChoice) {
     await sending;
     await flushPending();
+    localReason.value = 'offline';
     if (loadPending(storage).length) return null;
-    return orNull(api.startRun());
+    try {
+      return await api.startRun(choice);
+    } catch (e) {
+      if (e instanceof ApiError && e.code === 'locked') localReason.value = 'locked';
+      return null;
+    }
+  }
+
+  /** 名前と解禁の状態の問い合わせが終わるまで待つ（失敗しても待つだけ） */
+  const whenMeLoaded = () => loadingMe;
+
+  /** 解禁の状態を足し込んで保存する（解禁は減らない） */
+  function absorbProgress(p: Progress) {
+    progress.value = mergeProgress(progress.value, p);
+    saveProgress(storage, progress.value);
+  }
+
+  /**
+   * 終わったランを解禁の状態に数え、新しく解禁されたものを返す。端末だけのランもここで数える
+   * （ランキングに載るランは、サーバーも記録を確かめてから数える）
+   */
+  function countFinishedRun(run: RunState): NewUnlocks {
+    const before = progress.value;
+    absorbProgress(progressAfter(before, run));
+    return newUnlocks(before, progress.value);
   }
 
   /** 送り直す。送れた（または断られた）ものだけを外し、そのあいだに足された記録は残す */
@@ -98,7 +164,9 @@ export const useAccountStore = defineStore('account', () => {
     );
     submission.value = { status: 'sending' };
     try {
-      submission.value = { status: 'recorded', result: await api.finishRun(runId, log) };
+      const result = await api.finishRun(runId, log);
+      submission.value = { status: 'recorded', result };
+      absorbServerProgress(result.progress);
       saveSettledRunId(storage, runId);
     } catch (e) {
       if (isRetryable(e)) {
@@ -117,5 +185,21 @@ export const useAccountStore = defineStore('account', () => {
 
   const weeklyRanking = (week?: string) => orNull(api.weeklyRanking(week));
 
-  return { name, kanGameName, submission, loadMe, registerName, startRankedRun, flushPending, submit, clearSubmission, weeklyRanking };
+  return {
+    name,
+    kanGameName,
+    submission,
+    progress,
+    serverProgress,
+    localReason,
+    loadMe,
+    whenMeLoaded,
+    registerName,
+    startRankedRun,
+    countFinishedRun,
+    flushPending,
+    submit,
+    clearSubmission,
+    weeklyRanking,
+  };
 });

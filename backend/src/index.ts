@@ -15,6 +15,7 @@ import { authMiddleware } from './middleware/auth';
 import { idPlatform } from './lib/id-auth';
 import { getProfileName, nameOutcome, registerProfile } from './lib/profile';
 import { finishRun, MAX_ACTIONS, startRun } from './lib/runs';
+import { loadProgress } from './lib/progress';
 import { weeklyRanking } from './lib/ranking';
 import { isWeek, weekOf } from '@pujan/engine';
 
@@ -41,10 +42,11 @@ api.use('*', authMiddleware);
 /** 名前は kan-game.app 全体の規則で ID 基盤が確かめる。ここでは長さの上限だけ見る（UTF-16 で 256 単位） */
 const profileSchema = z.object({ name: z.string().min(1).max(256) });
 
-// GET /api/me — ランキングに出す名前（同意する前は null）
+// GET /api/me — ランキングに出す名前（同意する前は null）と解禁の状態
 api.get('/me', async (c) => {
   const accountId = c.get('accountId');
-  return c.json({ id: accountId, name: await getProfileName(c.env.DB, accountId) });
+  const [name, progress] = await Promise.all([getProfileName(c.env.DB, accountId), loadProgress(c.env.DB, accountId)]);
+  return c.json({ id: accountId, name, progress });
 });
 
 // POST /api/profile — kan-game.app の名前を登録し（登録済みならその名前を使う）、ここでの公開に同意する
@@ -65,9 +67,19 @@ api.post('/profile', async (c) => {
   return c.json({ name: outcome.name });
 });
 
-// POST /api/runs — ランを始める。シードと記録の ID を返す
+/** ランを始めるときの雀士と段位（本文がなければ標準の雀士・初段） */
+const startSchema = z
+  .object({ character: z.string().max(32).default('standard'), dan: z.number().int().default(0) })
+  .default({ character: 'standard', dan: 0 });
+
+// POST /api/runs — ランを始める。シード・記録の ID・始めの条件を返す。まだ選べない雀士や段位なら 403
 api.post('/runs', async (c) => {
-  return c.json(await startRun(c.env.DB, c.get('accountId')), 201);
+  // 本文がない（JSON でない、null）ときは undefined にして、標準の雀士・初段にする
+  const body = startSchema.safeParse((await c.req.json().catch(() => undefined)) ?? undefined);
+  if (!body.success) return c.json({ error: 'invalid_request' }, 400);
+  const run = await startRun(c.env.DB, c.get('accountId'), body.data);
+  if (!run) return c.json({ error: 'locked' }, 403);
+  return c.json(run, 201);
 });
 
 /** 操作ログ（engine の RunLog）。操作の中身は replay() が確かめる */
@@ -75,12 +87,10 @@ const finishSchema = z.object({
   log: z.object({
     engineVersion: z.number().int(),
     seed: z.number().int(),
-    base: z.object({
-      turns: z.number().int(),
-      holdSlots: z.number().int(),
-      next: z.number().int(),
-      redFives: z.boolean(),
-      haitei: z.boolean(),
+    start: z.object({
+      character: z.string().max(32),
+      dan: z.number().int(),
+      unlockedYaku: z.array(z.string().max(32)).max(100),
     }),
     actions: z.array(z.looseObject({ type: z.string() })).max(MAX_ACTIONS),
   }),
@@ -95,7 +105,13 @@ api.post('/runs/:id/finish', bodyLimit({ maxSize: 512 * 1024 }), async (c) => {
   const result = await finishRun(c.env.DB, c.get('accountId'), c.req.param('id'), log);
   switch (result.status) {
     case 'recorded':
-      return c.json({ ...result.summary, week: result.week, best: result.best, duplicate: result.duplicate });
+      return c.json({
+        ...result.summary,
+        week: result.week,
+        best: result.best,
+        duplicate: result.duplicate,
+        progress: result.progress,
+      });
     case 'not_found':
       return c.json({ error: 'not_found' }, 404);
     case 'superseded':

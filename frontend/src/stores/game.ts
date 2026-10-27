@@ -16,7 +16,10 @@ import {
   ENGINE_VERSION,
   isActing,
   isFinished,
+  clampChoice,
   isJoker,
+  isRunStart,
+  makeStart,
   newLog,
   randomSeed,
   remainingOf,
@@ -25,10 +28,21 @@ import {
   type GameAction,
   type GameState,
   type Kind,
+  type NewUnlocks,
+  type RunChoice,
   type RunLog,
   type Zone,
 } from '@pujan/engine';
-import { browserStorage, clearRunLog, loadRunId, loadRunLog, saveRunId, saveRunLog } from '@/lib/storage';
+import {
+  browserStorage,
+  clearRunLog,
+  loadChoice,
+  loadRunId,
+  loadRunLog,
+  saveChoice,
+  saveRunId,
+  saveRunLog,
+} from '@/lib/storage';
 import { winPreviewOf } from '@/lib/win-preview';
 import { useAccountStore } from './account';
 
@@ -48,6 +62,8 @@ export const useGameStore = defineStore('game', () => {
   const runId = ref<string | null>(null);
   /** 新しいランを始めている途中（サーバーにシードをもらっている） */
   const starting = ref(false);
+  /** 終わったランで新しく解禁されたもの（ラン終了のシートに出す。開き直したあとは null） */
+  const unlocks = shallowRef<NewUnlocks | null>(null);
   /**
    * 場の案内や場の結果を閉じたときの操作の数。操作が進めば古くなるので、次の場ではまた出る。
    * 保存はしない（開き直したときに、まだ何もしていなければもう一度出る）
@@ -90,18 +106,30 @@ export const useGameStore = defineStore('game', () => {
   /**
    * 新しいランを始める。サーバーにシードをもらってランキングに載せるランにする
    * （良い山を手元で探す不正を防ぐため、シードはサーバーが決める。docs/SPEC.md §5.3）。
-   * サーバーにつながらないときは、端末で決めたシードの端末だけのランになる。ルールはいつも既定のもの。
+   * サーバーにつながらないときは、端末で決めたシードの端末だけのランになる。
+   * 雀士と段位は choice（省略時は前のランで選んだもの）。解禁済みの役は、ランキングに載るランではサーバーの記録、
+   * 端末だけのランでは端末の記録から決める
    */
-  async function startRun() {
+  async function startRun(choice: RunChoice = loadChoice(storage)) {
     if (starting.value) return;
     starting.value = true;
     try {
-      const ranked = await account.startRankedRun();
-      const usable = ranked && ranked.engineVersion === ENGINE_VERSION ? ranked : null;
+      saveChoice(storage, choice);
+      const ranked = await account.startRankedRun(choice);
+      // 版が違う・始めの条件の形が違うランは、ランキングに載せずに端末だけのランにする
+      const usable = ranked && ranked.engineVersion === ENGINE_VERSION && isRunStart(ranked.start) ? ranked : null;
       const seed = usable?.seed ?? randomSeed();
-      log.value = newLog(seed);
-      game.value = createGame(seed);
+      let start = usable?.start;
+      if (!start) {
+        // 端末だけのラン: サーバーの解禁を足してから、端末の記録でも選べない組み合わせを選べる範囲に収める
+        await account.whenMeLoaded();
+        const local = clampChoice(account.progress, choice);
+        start = makeStart(account.progress, local.character, local.dan)!;
+      }
+      log.value = newLog(seed, start);
+      game.value = createGame(seed, { start });
       runId.value = usable?.id ?? null;
+      unlocks.value = null;
       dismissedAt.value = -1;
       account.clearSubmission();
       saveRunLog(storage, log.value);
@@ -148,8 +176,11 @@ export const useGameStore = defineStore('game', () => {
     log.value = { ...log.value, actions: [...log.value.actions, action] };
     saveRunLog(storage, log.value);
     selectDefault();
-    // ランが終わった（ラン終了・全場クリア）: 記録を送る
-    if (isFinished(game.value)) void account.submit(runId.value, log.value);
+    // ランが終わった（ラン終了・全場クリア）: 解禁を数え、記録を送る
+    if (isFinished(game.value)) {
+      unlocks.value = account.countFinishedRun(game.value.run);
+      void account.submit(runId.value, log.value);
+    }
     return true;
   }
 
@@ -215,6 +246,7 @@ export const useGameStore = defineStore('game', () => {
     selection,
     runId,
     starting,
+    unlocks,
     showIntro,
     showWaveResult,
     acting,

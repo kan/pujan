@@ -19,8 +19,6 @@ const account = useAccountStore();
 
 /** 名前の登録を開いている */
 const naming = ref(false);
-/** 新しいランを始めてよいか確かめている */
-const confirmingNewRun = ref(false);
 </script>
 
 <template>
@@ -46,14 +44,8 @@ const confirmingNewRun = ref(false);
       <button class="btn" type="button" @click="emit('openTutorial')">遊び方（チュートリアル）</button>
       <button class="btn" type="button" @click="emit('open', 'help')">役と遊び方</button>
       <button class="btn" type="button" @click="emit('open', 'inventory')">持ち物</button>
-      <button v-if="!confirmingNewRun" class="btn" type="button" @click="confirmingNewRun = true">新しいランを始める</button>
-      <div v-else class="confirm" role="group" aria-label="新しいランを始める">
-        <p class="note warn">今のランをやめて、新しいランを始めますか？ 今のランはランキングに記録されません。</p>
-        <div class="actions">
-          <button class="btn" type="button" @click="confirmingNewRun = false">やめる</button>
-          <button class="btn win" type="button" @click="emit('newRun')">新しいランを始める</button>
-        </div>
-      </div>
+      <!-- 雀士と段位を選ぶ準備の画面で、今のランをやめることを確かめる -->
+      <button class="btn" type="button" @click="emit('newRun')">新しいランを始める</button>
       <button class="btn" type="button" @click="emit('open', 'about')">プチ麻雀について</button>
     </nav>
 
@@ -76,11 +68,6 @@ const confirmingNewRun = ref(false);
   color: var(--muted);
 }
 .menu {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-.confirm {
   display: flex;
   flex-direction: column;
   gap: 8px;

@@ -7,7 +7,8 @@ import { computed, onMounted, ref } from 'vue';
 import { shiftDays, weekOf } from '@pujan/engine';
 import type { WeeklyRanking } from '@/api/client';
 import { useAccountStore } from '@/stores/account';
-import { summaryText } from '@/lib/labels';
+import { startLabel, summaryText } from '@/lib/labels';
+import CharacterIcon from '../CharacterIcon.vue';
 import NameForm from '../NameForm.vue';
 import SheetLayer from '../SheetLayer.vue';
 
@@ -51,7 +52,7 @@ const meListed = computed(() => !!ranking.value?.entries.some((e) => e.isMe));
       <button class="btn" type="button" :disabled="loading" @click="go(-1)">← 前の週</button>
       <button class="btn" type="button" :disabled="loading || isThisWeek" @click="go(1)">次の週 →</button>
     </div>
-    <p class="note">{{ weekLabel }}（月曜に入れ替わります）。突破した場の数、4場の合計点の順です。</p>
+    <p class="note">{{ weekLabel }}（月曜に入れ替わります）。段位、突破した場の数、合計点の順です。</p>
 
     <p v-if="loading" class="note">読み込んでいます…</p>
     <p v-else-if="!ranking" class="note warn">サーバーにつながりません。</p>
@@ -59,12 +60,12 @@ const meListed = computed(() => !!ranking.value?.entries.some((e) => e.isMe));
       <p v-if="!ranking.entries.length" class="note">この週の記録はまだありません。</p>
       <div v-else class="yakulist ranking">
         <template v-for="(e, i) in ranking.entries" :key="i">
-          <span :class="{ me: e.isMe }">{{ e.rank }}. {{ e.name }}</span>
+          <span :class="{ me: e.isMe }">{{ e.rank }}. {{ e.name }}<small class="who"><CharacterIcon :id="e.character" :size="16" /> {{ startLabel(e) }}</small></span>
           <span>{{ summaryText(e) }}</span>
         </template>
       </div>
       <p v-if="ranking.me && !meListed" class="note">
-        あなたの記録: {{ summaryText(ranking.me) }}
+        あなたの記録: {{ startLabel(ranking.me) }}・{{ summaryText(ranking.me) }}
         {{ ranking.me.rank ? `（${ranking.me.rank}位）` : '（名前を登録するとランキングに載ります）' }}
       </p>
     </template>
@@ -79,5 +80,11 @@ const meListed = computed(() => !!ranking.value?.entries.some((e) => e.isMe));
 .ranking .me {
   color: var(--gold);
   font-weight: 700;
+}
+.who {
+  display: block;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 400;
 }
 </style>

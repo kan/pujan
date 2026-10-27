@@ -8,14 +8,12 @@ import {
   BOSSES,
   CHARMS,
   CONSUMABLES,
-  DEFAULT_BASE_RULES,
   EQUIPMENT,
   MAX_CHARMS,
   MAX_CONSUMABLES,
   MODS,
   PRICES,
   REROLL_PRICE,
-  SCROLL_YAKU,
   SELL_PRICE,
   modifiersFor,
   type BaseRules,
@@ -27,14 +25,21 @@ import {
   type ModId,
 } from './items.js';
 import { defaultComposition, startKyoku, type Composition, type KyokuResult, type KyokuState } from './kyoku.js';
+import {
+  DEFAULT_START,
+  YAKUMAN_MARK,
+  charmAvailable,
+  runRulesFor,
+  scrollYakuAvailable,
+  type RunStart,
+} from './progression.js';
 import type { FinalScore } from './score.js';
 import { createRng, mix32, nextFloat, nextInt } from './rng.js';
 import { EAST, KIND_COUNT, type Kind } from './tiles.js';
 
-export const WAVE_TARGETS: readonly number[] = [1000, 2000, 4000, 8000];
+// 場の目標点・始めの祝儀・ショップの品の数は雀士と段位で変わる（progression.ts の runRulesFor）
 export const WAVE_COUNT = 4;
 export const KYOKU_PER_WAVE = 4;
-export const START_MONEY = 4;
 /** 流局時に聴牌していたときの祝儀 */
 export const TENPAI_MONEY = 1;
 
@@ -82,7 +87,12 @@ export type AfterShop = 'sameKyoku' | 'nextKyoku' | 'nextWave';
 export interface RunState {
   seed: number;
   rng: number;
+  /** 始めの条件（雀士・段位・解禁済みの役） */
+  start: RunStart;
+  /** 基本ルール（雀士と段位から決まる。目標点・ショップの品の数は start から runRulesFor で引く） */
   base: BaseRules;
+  /** このランで和了った役の名前（解禁に使う。progression.ts の progressAfter） */
+  yakuWon: string[];
   /** 0〜3（東・南・西・北） */
   wave: number;
   money: number;
@@ -101,29 +111,40 @@ export interface RunState {
   waveScores: number[];
 }
 
-function newRound(rng: number, wave: number): [number, Round] {
+function newRound(rng: number, wave: number, targets: readonly number[]): [number, Round] {
   let r = rng;
   let dealer: number;
   let boss: number;
   [r, dealer] = nextInt(r, KYOKU_PER_WAVE);
   [r, boss] = nextInt(r, BOSSES.length);
-  return [r, { kyoku: 0, score: 0, dealer, honba: 0, boss: BOSSES[boss].id, target: WAVE_TARGETS[wave], log: [] }];
+  return [r, { kyoku: 0, score: 0, dealer, honba: 0, boss: BOSSES[boss].id, target: targets[wave], log: [] }];
 }
 
-/**
- * 新しいラン。start は最初から持つお守りと設備（今はシミュレーションだけが使う。
- * 雀士などで画面から使うときは、操作ログにも残して再生できるようにする）。
- */
-export function createRun(seed: number, base: BaseRules = DEFAULT_BASE_RULES, start?: Loadout): RunState {
-  const [rng, round] = newRound(createRng(mix32(seed)), 0);
+export interface RunOptions {
+  /** 始めの条件（雀士・段位・解禁済みの役）。省略時は標準の雀士・初段・解禁なし */
+  start?: RunStart;
+  /** 基本ルールの上書き（シミュレーション用。画面とサーバーは start から決める） */
+  base?: BaseRules;
+  /** 最初から持たせるお守りと設備の追加（シミュレーション用） */
+  loadout?: Loadout;
+}
+
+/** 新しいラン。ルールと始めの持ち物は、始めの条件（雀士・段位）から決まる */
+export function createRun(seed: number, options: RunOptions = {}): RunState {
+  const start = options.start ?? DEFAULT_START;
+  const rules = runRulesFor(start);
+  const base = options.base ?? rules.base;
+  const [rng, round] = newRound(createRng(mix32(seed)), 0, rules.targets);
   return {
     seed,
     rng,
+    start,
     base,
+    yakuWon: [],
     wave: 0,
-    money: START_MONEY,
-    charms: [...(start?.charms ?? [])],
-    equipment: [...(start?.equipment ?? [])],
+    money: rules.startMoney,
+    charms: [...rules.charms, ...(options.loadout?.charms ?? [])],
+    equipment: [...rules.equipment, ...(options.loadout?.equipment ?? [])],
     consumables: [],
     yakuLevels: {},
     composition: defaultComposition(base.redFives),
@@ -190,8 +211,14 @@ export function settleKyoku(run: RunState, result: KyokuResult, renchan = false)
   const dealer = isDealerKyoku(run);
   const round: Round = { ...run.round, score: run.round.score + pointsDelta(result), log: run.round.log.slice() };
   let money = run.money;
+  let yakuWon = run.yakuWon;
   if (result.type === 'win') {
     money += moneyForWin(result);
+    // 解禁に使う（ボーナスの翻・役満の名前も含める。役満なら印も入れる）
+    const ev = result.win.evaluation;
+    const names = ev.yaku.map((y) => y.name);
+    if (ev.yakuman) names.push(YAKUMAN_MARK);
+    yakuWon = [...new Set([...yakuWon, ...names])];
     round.log.push({
       kyoku: round.kyoku,
       honba: round.honba,
@@ -209,7 +236,7 @@ export function settleKyoku(run: RunState, result: KyokuResult, renchan = false)
       dealer,
     });
   }
-  const next: RunState = { ...run, money, round };
+  const next: RunState = { ...run, money, round, yakuWon };
   if (result.type === 'win' && dealer && renchan) {
     next.round = { ...round, honba: round.honba + 1 };
     return openShop(next, 'sameKyoku');
@@ -269,6 +296,8 @@ function rollOffer(rng: number, run: RunState, offers: readonly Offer[]): [numbe
     if (roll < 0.4) {
       [r, pick] = nextInt(r, CHARMS.length);
       const c = CHARMS[pick];
+      // 役で解禁されるお守りは、その役で和了ったことがあるときだけ並ぶ
+      if (!charmAvailable(c.id, run.start.unlockedYaku)) continue;
       offer = { kind: 'charm', id: c.id, price: c.price ?? PRICES.charm, sold: false };
     } else if (roll < 0.6) {
       [r, pick] = nextInt(r, CONSUMABLES.length);
@@ -277,8 +306,11 @@ function rollOffer(rng: number, run: RunState, offers: readonly Offer[]): [numbe
       [r, pick] = nextInt(r, MODS.length);
       offer = { kind: 'mod', id: MODS[pick].id, price: PRICES.mod, sold: false };
     } else if (roll < 0.9) {
-      [r, pick] = nextInt(r, SCROLL_YAKU.length);
-      offer = { kind: 'scroll', yaku: SCROLL_YAKU[pick], price: PRICES.scroll, sold: false };
+      // 役の巻物は、その役で和了ったことがある役だけ（まだなければ別の品を引き直す）
+      const yaku = scrollYakuAvailable(run.start.unlockedYaku);
+      if (!yaku.length) continue;
+      [r, pick] = nextInt(r, yaku.length);
+      offer = { kind: 'scroll', yaku: yaku[pick], price: PRICES.scroll, sold: false };
     } else {
       [r, pick] = nextInt(r, EQUIPMENT.length);
       const e = EQUIPMENT[pick];
@@ -293,7 +325,8 @@ function rollOffer(rng: number, run: RunState, offers: readonly Offer[]): [numbe
 function rollOffers(run: RunState): RunState {
   let rng = run.rng;
   const offers: Offer[] = [];
-  for (let i = 0; i < 3; i++) {
+  const size = runRulesFor(run.start).shopSize;
+  for (let i = 0; i < size; i++) {
     let o: Offer;
     [rng, o] = rollOffer(rng, run, offers);
     offers.push(o);
@@ -385,7 +418,7 @@ export function leaveShop(run: RunState): RunState {
   const base = { ...run, phase: 'kyoku' as const, shop: null, afterShop: null };
   if (run.afterShop === 'sameKyoku') return base;
   if (run.afterShop === 'nextKyoku') return { ...base, round: { ...run.round, kyoku: run.round.kyoku + 1 } };
-  const [rng, round] = newRound(run.rng, run.wave + 1);
+  const [rng, round] = newRound(run.rng, run.wave + 1, runRulesFor(run.start).targets);
   return { ...base, rng, wave: run.wave + 1, round, lastWaveBonus: null };
 }
 

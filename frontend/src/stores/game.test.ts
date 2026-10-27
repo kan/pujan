@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { createPinia, setActivePinia } from 'pinia';
-import { ENGINE_VERSION } from '@pujan/engine';
+import { EMPTY_PROGRESS, ENGINE_VERSION, makeStart, type Progress } from '@pujan/engine';
 import { memoryStorage } from '@/lib/memory-storage';
 import { useAccountStore } from './account';
 import { useGameStore } from './game';
@@ -12,20 +12,27 @@ const server = {
   /** 記録の送信に返す失敗の状態（0 なら成功） */
   finishError: 0,
   finished: [] as { runId: string; actions: number }[],
+  /** サーバーに記録してある解禁の状態 */
+  progress: EMPTY_PROGRESS as Progress,
 };
 
 async function fakeFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
   if (!server.online) throw new TypeError('offline');
   const path = String(input);
   if (path === '/api/id/session') return Response.json({ id: 'x', name: null, status: 'active' });
-  if (path === '/api/me') return Response.json({ id: 'x', name: null });
-  if (path === '/api/runs') return Response.json({ id: 'run-1', seed: server.seed, engineVersion: ENGINE_VERSION }, { status: 201 });
+  if (path === '/api/me') return Response.json({ id: 'x', name: null, progress: server.progress });
+  if (path === '/api/runs') {
+    const choice = JSON.parse(String(init?.body));
+    const start = makeStart(server.progress, choice.character, choice.dan);
+    if (!start) return Response.json({ error: 'locked' }, { status: 403 });
+    return Response.json({ id: 'run-1', seed: server.seed, engineVersion: ENGINE_VERSION, start }, { status: 201 });
+  }
   const finish = /^\/api\/runs\/(.+)\/finish$/.exec(path);
   if (finish) {
     if (server.finishError) return Response.json({ error: 'error' }, { status: server.finishError });
     const body = JSON.parse(String(init?.body));
     server.finished.push({ runId: finish[1], actions: body.log.actions.length });
-    return Response.json({ wavesCleared: 0, totalScore: 0, week: '2026-10-26', best: true });
+    return Response.json({ wavesCleared: 0, totalScore: 0, week: '2026-10-26', best: true, progress: server.progress });
   }
   return Response.json({ error: 'not_found' }, { status: 404 });
 }
@@ -39,6 +46,7 @@ beforeEach(() => {
   server.online = false;
   server.finishError = 0;
   server.finished = [];
+  server.progress = EMPTY_PROGRESS;
   setActivePinia(createPinia());
 });
 
@@ -222,5 +230,42 @@ describe('ランキングに載せるラン', () => {
     await reopen();
     await vi.waitFor(() => expect(server.finished.length).toBeGreaterThanOrEqual(1));
     await vi.waitFor(() => expect(JSON.parse(storage.data.get('pujan.pending.v1')!)).toHaveLength(0));
+  });
+
+  it('選んだ雀士と段位で始め、次のランの準備のために覚える', async () => {
+    server.online = true;
+    server.progress = { yakuWon: ['役牌'], bestWaves: 2, danCleared: 0 };
+    const store = useGameStore();
+    await store.init();
+    await store.startRun({ character: 'oya', dan: 1 });
+    expect(store.runId).toBe('run-1');
+    expect(store.run.start).toEqual({ character: 'oya', dan: 1, unlockedYaku: ['役牌'] });
+    expect(store.run.charms).toEqual(['oyaji']);
+    expect(JSON.parse(storage.data.get('pujan.choice.v1')!)).toEqual({ character: 'oya', dan: 1 });
+    // サーバーの解禁の状態は端末にも残る
+    expect(useAccountStore().progress).toEqual(server.progress);
+  });
+
+  it('サーバーの記録ではまだ選べない雀士は、端末の記録で端末だけのランにする', async () => {
+    server.online = true;
+    storage.setItem('pujan.progress.v1', JSON.stringify({ yakuWon: [], bestWaves: 1, danCleared: -1 }));
+    const store = useGameStore();
+    await store.init();
+    await store.startRun({ character: 'speed', dan: 0 });
+    expect(store.runId).toBeNull();
+    expect(store.run.start.character).toBe('speed');
+    expect(useAccountStore().localReason).toBe('locked');
+    // どちらの記録でも選べない組み合わせは、標準の雀士・初段にする
+    await store.startRun({ character: 'yakuman', dan: 3 });
+    expect(store.run.start).toMatchObject({ character: 'standard', dan: 0 });
+  });
+
+  it('終わったランは端末だけのランでも解禁に数える', async () => {
+    const store = useGameStore();
+    await store.init();
+    expect(store.unlocks).toBeNull();
+    playToEnd(store);
+    expect(store.unlocks).not.toBeNull();
+    expect(storage.data.has('pujan.progress.v1')).toBe(true);
   });
 });

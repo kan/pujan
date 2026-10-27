@@ -344,7 +344,7 @@ export function simulateRuns(opts: RunSimOptions): RunSimResult {
     let seed: number;
     [rng, seed] = nextInt(rng, 0x7fffffff);
     // 画面やサーバーの再生と同じ apply() で進める
-    let g = createGame(seed, DEFAULT_BASE_RULES, { charms: opts.charms ?? [], equipment: opts.equipment ?? [] });
+    let g = createGame(seed, { loadout: { charms: opts.charms ?? [], equipment: opts.equipment ?? [] } });
     for (let actions = 0; !isFinished(g); actions++) {
       // 親の和了が続くなどで終わらないランを打ち切る（1 ランはふつう数百手）
       if (actions > 100000) throw new Error(`run ${i} did not finish`);

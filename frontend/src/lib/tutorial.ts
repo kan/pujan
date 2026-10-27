@@ -7,10 +7,13 @@ import {
   DEFAULT_BASE_RULES,
   EAST,
   SOUTH,
+  BASE_WAVE_TARGETS,
+  CHARACTERS,
   CHUN,
+  characterName,
+  DANS,
   KYOKU_PER_WAVE,
   WAVE_COUNT,
-  WAVE_TARGETS,
   createRng,
   defaultComposition,
   man as m,
@@ -122,7 +125,7 @@ export const PLAY_STEPS: readonly PlayStep[] = [
 
 /** 説明に出す数字（engine の既定のルールから。数字を変えたら説明も変わる） */
 const RULES = modifiersFor(DEFAULT_BASE_RULES, { charms: [], equipment: [] }, null);
-const targetsText = WAVE_TARGETS.map((t, i) => `${['東', '南', '西', '北'][i]}${t.toLocaleString('ja-JP')}`).join('・');
+const targetsText = BASE_WAVE_TARGETS.map((t, i) => `${['東', '南', '西', '北'][i]}${t.toLocaleString('ja-JP')}`).join('・');
 
 /** 和了ったあとに読んでもらう、ランの流れの説明 */
 export const GUIDE_PAGES: readonly { title: string; body: string[]; /** 「役と遊び方」の遊び方のタブにも出す */ inHelp?: boolean }[] = [
@@ -148,6 +151,15 @@ export const GUIDE_PAGES: readonly { title: string; body: string[]; /** 「役�
     body: [
       '各場の4局目（オーラス）にはボスがいて、「保留枠が使えない」「ネクストが見えない」などの縛りが付きます。場の始めに分かるので、それまでに点数を稼いでおきましょう。',
       '和了ると祝儀（お金）がもらえます。局が終わるたびにショップが開き、祝儀でお守り・設備・消耗品・牌の改造・役の巻物を買えます。組み合わせて点数を伸ばしましょう。',
+    ],
+  },
+  {
+    title: '雀士・段位・解禁',
+    inHelp: true,
+    body: [
+      `ランを始めるときに雀士と段位を選べます。雀士（${CHARACTERS.map((c) => characterName(c.id)).join('・')}）は保留枠やネクスト、始めの持ち物が違います。はじめは「${characterName(CHARACTERS[0].id)}」だけで、場を突破したり特定の役で和了ったりすると選べるようになります。`,
+      `段位（${DANS[0].name}〜${DANS[DANS.length - 1].name}）は上がるほど目標点などの縛りが重くなります。全場クリアすると次の段位を選べます。ランキングは段位の高い記録が上です。`,
+      'その役で一度和了ると、その役の巻物がショップに並ぶようになります。役に結び付いたお守り（色眼鏡・飛び石など）も同じです。',
     ],
   },
   {

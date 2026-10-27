@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <g stroke="#1c1b18" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+    <!-- 後ろへ流れる耳と金色のスカーフで軽快に。 -->
+    <path fill="#efe1d8" d="M17 27C11 17 11 4 17 4C23 4 25 16 25 23L34 23C37 14 45 3 50 6C56 10 46 23 43 27C52 31 55 41 49 48L52 57Q32 63 12 57L15 48C9 41 10 32 17 27Z"/>
+    <path fill="none" stroke="#d4aaa5" d="M18 11L21 23M47 12L39 24"/>
+    <path fill="#f4eedb" stroke="none" d="M20 39C20 31 44 31 44 39C44 50 20 50 20 39Z"/>
+    <path fill="none" d="M23 32V34M41 32V34"/>
+    <path fill="#d4aaa5" d="M29 38H35L32 41Z"/>
+    <path fill="none" d="M27 44Q32 48 37 44M32 41V44"/>
+    <path fill="#d8aa45" d="M18 50Q32 55 45 49L48 55Q32 61 17 56ZM43 52L58 49L55 55L59 59L45 58Z"/>
+  </g>
+</svg>

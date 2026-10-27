@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <g stroke="#1c1b18" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+    <!-- 甲羅に包まれて、ゆったり微笑むかめ。 -->
+    <path fill="#688663" d="M7 56C6 37 16 27 32 27C48 27 58 37 57 56Q32 64 7 56Z"/>
+    <path fill="none" d="M10 44L22 47L26 59M54 44L42 47L38 59"/>
+    <path fill="#a5b985" d="M25 42L23 33C12 30 12 16 19 11C25 6 39 6 45 11C52 16 52 30 41 33L39 42Z"/>
+    <path fill="#f4eedb" d="M22 42Q32 47 42 42L45 57Q32 61 19 57Z"/>
+    <path fill="#a5b985" d="M20 45C15 42 10 46 10 52C10 57 17 57 21 54M44 45C49 42 54 46 54 52C54 57 47 57 43 54"/>
+    <path fill="none" d="M22 22Q25 19 28 22M36 22Q39 19 42 22M27 29Q32 33 37 29"/>
+    <path fill="#d8aa45" d="M29 47H35L37 51L32 55L27 51Z"/>
+  </g>
+</svg>

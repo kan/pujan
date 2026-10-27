@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <g stroke="#1c1b18" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+    <!-- 丸い耳と広い口元の、穏やかなくま。 -->
+    <path fill="#a97951" d="M14 43C8 38 7 26 12 19C5 12 10 5 17 7C21 8 23 11 23 14C29 12 35 12 41 14C41 8 49 4 54 9C58 13 55 18 52 20C57 28 56 38 50 43L53 57Q32 63 11 57Z"/>
+    <path fill="#d5ac7c" d="M13 13Q16 10 19 14M45 14Q48 10 51 13"/>
+    <path fill="#f4eedb" d="M18 38C18 28 46 28 46 38C46 50 18 50 18 38Z"/>
+    <path fill="#1c1b18" d="M28 34Q32 31 36 34L32 38Z"/>
+    <path fill="none" d="M32 38V41M26 41Q32 46 38 41"/>
+    <path fill="none" d="M23 26V28M41 26V28"/>
+    <path fill="#f4eedb" d="M23 51L32 55L41 51L39 59H25Z"/>
+    <circle cx="32" cy="54" r="3" fill="#d8aa45"/>
+  </g>
+</svg>

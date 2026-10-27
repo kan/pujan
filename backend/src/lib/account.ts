@@ -5,6 +5,7 @@ const ACCOUNT_TABLES = [
   ['runs', 'account_id'],
   ['weekly_best', 'account_id'],
   ['profiles', 'account_id'],
+  ['progress', 'account_id'],
 ] as const;
 
 /**

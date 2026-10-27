@@ -3,10 +3,10 @@
 import { computed } from 'vue';
 import { useAccountStore } from '@/stores/account';
 import { useGameStore } from '@/stores/game';
-import { WIND_NAMES, roundLabel, summaryText } from '@/lib/labels';
+import { WIND_NAMES, roundLabel, summaryText, unlockLines } from '@/lib/labels';
 import SheetLayer from '../SheetLayer.vue';
 
-const emit = defineEmits<{ close: []; openRanking: [] }>();
+const emit = defineEmits<{ close: []; openRanking: []; newRun: [] }>();
 const store = useGameStore();
 const account = useAccountStore();
 const run = computed(() => store.run);
@@ -17,6 +17,8 @@ const title = computed(() =>
 );
 // 突破したとき（全場クリアを含む）の祝儀の内訳。ラン終了では出さない
 const bonus = computed(() => (run.value.phase === 'over' ? null : run.value.lastWaveBonus));
+/** ランが終わって新しく解禁されたもの */
+const unlocked = computed(() => (store.unlocks && run.value.phase !== 'shop' ? unlockLines(store.unlocks) : []));
 
 /** ランが終わったときの、ランキングへの記録の様子 */
 const submissionText = computed(() => {
@@ -24,7 +26,9 @@ const submissionText = computed(() => {
   if (!s || run.value.phase === 'shop') return '';
   switch (s.status) {
     case 'local':
-      return 'このランは、始めたときにサーバーにつながらなかったので、ランキングには載りません。';
+      return account.localReason === 'locked'
+        ? 'このランは、この端末だけで解禁した雀士・段位で始めたので、ランキングには載りません。'
+        : 'このランは、始めたときにサーバーにつながらなかったので、ランキングには載りません。';
     case 'sending':
       return '記録を送っています…';
     case 'recorded':
@@ -60,11 +64,34 @@ const submissionText = computed(() => {
       <span>利子（5ごとに1、最大5）</span><span>+{{ bonus.interest }}</span>
       <span>目標超過</span><span>+{{ bonus.over }}</span>
     </div>
+    <section v-if="unlocked.length" class="unlocks" aria-label="解禁">
+      <h3>解禁</h3>
+      <ul>
+        <li v-for="line in unlocked" :key="line">{{ line }}</li>
+      </ul>
+    </section>
     <p v-if="submissionText" class="note" role="status">{{ submissionText }}</p>
     <button v-if="run.phase === 'shop'" class="btn win" type="button" @click="emit('close')">ショップへ</button>
     <div v-else class="actions">
       <button class="btn" type="button" @click="emit('openRanking')">ランキング</button>
-      <button class="btn win" type="button" @click="store.startRun()">新しいラン</button>
+      <button class="btn win" type="button" @click="emit('newRun')">新しいラン</button>
     </div>
   </SheetLayer>
 </template>
+
+<style scoped>
+.unlocks {
+  border: 1px solid var(--gold);
+  border-radius: 8px;
+  padding: 8px 12px;
+}
+.unlocks h3 {
+  margin: 0 0 4px;
+  font-size: 14px;
+  color: var(--gold);
+}
+.unlocks ul {
+  margin: 0;
+  padding-left: 18px;
+}
+</style>

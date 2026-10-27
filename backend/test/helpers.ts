@@ -33,7 +33,7 @@ export async function call(path: string, init?: RequestInit, overrides: Partial<
 
 /** 各テストを空の表から始める（表の形は test/apply-migrations.ts が作る） */
 export async function resetDb() {
-  for (const table of ['runs', 'weekly_best', 'profiles', 'deleted_accounts']) await env.DB.exec(`DELETE FROM ${table}`);
+  for (const table of ['runs', 'weekly_best', 'profiles', 'progress', 'deleted_accounts']) await env.DB.exec(`DELETE FROM ${table}`);
   idPlatform = createFakeIdPlatform();
 }
 

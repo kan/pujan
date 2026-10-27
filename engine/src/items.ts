@@ -38,6 +38,8 @@ export interface CharmDef extends ItemDef<CharmId> {
   axis: string;
   /** 価格。省略時は PRICES.charm */
   price?: number;
+  /** この役で一度和了るとショップに並ぶ（省略時は最初から並ぶ。docs/SPEC.md §4.6） */
+  unlockYaku?: string;
 }
 
 export interface EquipDef extends ItemDef<EquipId> {
@@ -55,12 +57,12 @@ export const CHARMS: readonly CharmDef[] = [
   { id: 'oyaji', name: '親父の背中', description: '親の倍率が2倍', axis: '親番' },
   { id: 'isuwari', name: '居座り', description: '本場ボーナスが3倍', axis: '親番' },
   { id: 'akaito', name: '赤い糸', description: '赤牌が1枚2翻', axis: '赤ドラ' },
-  { id: 'iromegane', name: '色眼鏡', description: '萬子と索子を同じ色として扱う', axis: '言い張り' },
-  { id: 'tobiishi', name: '飛び石', description: '147・258・369を順子として扱う', axis: '言い張り' },
-  { id: 'kazamidori', name: '風見鶏', description: 'すべての風牌が役牌', axis: '言い張り' },
-  { id: 'hakushi', name: '白紙委任', description: '白を万能牌として扱う', axis: '役満' },
+  { id: 'iromegane', name: '色眼鏡', description: '萬子と索子を同じ色として扱う', axis: '言い張り', unlockYaku: '混一色' },
+  { id: 'tobiishi', name: '飛び石', description: '147・258・369を順子として扱う', axis: '言い張り', unlockYaku: 'プチ一通' },
+  { id: 'kazamidori', name: '風見鶏', description: 'すべての風牌が役牌', axis: '言い張り', unlockYaku: 'プチ小四喜' },
+  { id: 'hakushi', name: '白紙委任', description: '白を万能牌として扱う', axis: '役満', unlockYaku: 'プチ小三元' },
   { id: 'chokin', name: '貯金箱', description: '聴牌料が2倍', axis: '保険' },
-  { id: 'nolimit', name: '青天井', description: '満貫以上の上限がなくなり、翻ごとに点数が倍になる', axis: 'インフレ', price: 8 },
+  { id: 'nolimit', name: '青天井', description: '満貫以上の上限がなくなり、翻ごとに点数が倍になる', axis: 'インフレ', price: 8, unlockYaku: '清一色' },
 ];
 
 export const EQUIPMENT: readonly EquipDef[] = [
@@ -126,12 +128,6 @@ export interface BaseRules {
 }
 
 export const DEFAULT_BASE_RULES: BaseRules = { turns: 12, holdSlots: 3, next: 2, redFives: true, haitei: true };
-
-/** 既定のルールか（ランキングに載せられるのは既定のルールのランだけ。docs/SPEC.md §5.3） */
-export function isDefaultRules(r: BaseRules): boolean {
-  // 項目を足したときに比べ忘れないように、既定の値のすべての項目を比べる
-  return (Object.keys(DEFAULT_BASE_RULES) as (keyof BaseRules)[]).every((k) => r[k] === DEFAULT_BASE_RULES[k]);
-}
 
 /** 1 局のルール。基本ルールに持ち物とボスを重ねたもの */
 export interface Modifiers {

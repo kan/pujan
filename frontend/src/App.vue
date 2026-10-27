@@ -6,6 +6,7 @@
  * 初めて開いたときは、チュートリアルを見るかどうかを聞く。
  */
 import { computed, ref } from 'vue';
+import { isFinished, type RunChoice } from '@pujan/engine';
 import { useAccountStore } from '@/stores/account';
 import { useGameStore } from '@/stores/game';
 import { browserStorage, loadRunLog, loadTutorialSeen, saveTutorialSeen } from '@/lib/storage';
@@ -20,6 +21,7 @@ import InventorySheet from '@/components/sheets/InventorySheet.vue';
 import MenuSheet from '@/components/sheets/MenuSheet.vue';
 import RankingSheet from '@/components/sheets/RankingSheet.vue';
 import ShopSheet from '@/components/sheets/ShopSheet.vue';
+import StartSheet from '@/components/sheets/StartSheet.vue';
 import WaveSheet from '@/components/sheets/WaveSheet.vue';
 import WinSheet from '@/components/sheets/WinSheet.vue';
 
@@ -29,7 +31,7 @@ void store.init();
 // オフラインの間に送れなかった記録を、つながったら送り直す
 window.addEventListener('online', () => void account.flushPending());
 
-type Panel = 'menu' | 'help' | 'inventory' | 'ranking' | 'about';
+type Panel = 'menu' | 'help' | 'inventory' | 'ranking' | 'about' | 'start';
 const panel = ref<Panel | null>(null);
 
 /** 役と遊び方を開くタブ（ヘッダーの「役」は役のタブ、メニューからは遊び方のタブ） */
@@ -58,9 +60,9 @@ function closeTutorial() {
   saveTutorialSeen(storage);
 }
 
-async function newRun() {
+async function newRun(choice: RunChoice) {
   panel.value = null;
-  await store.startRun();
+  await store.startRun(choice);
 }
 
 const sheet = computed(() => {
@@ -89,15 +91,21 @@ const sheet = computed(() => {
     @close="panel = null"
     @open="(t) => (t === 'help' ? openHelp('guide') : (panel = t))"
     @open-tutorial="openTutorial"
-    @new-run="newRun"
+    @new-run="panel = 'start'"
   />
+  <StartSheet v-else-if="panel === 'start'" :in-progress="!isFinished(store.game)" @close="panel = null" @start="newRun" />
   <HelpSheet v-else-if="panel === 'help'" :initial-tab="helpTab" @close="panel = null" @open-tutorial="openTutorial" />
   <RankingSheet v-else-if="panel === 'ranking'" @close="panel = null" />
   <InventorySheet v-else-if="panel === 'inventory'" @close="panel = null" />
   <AboutSheet v-else-if="panel === 'about'" @close="panel = null" />
   <WinSheet v-else-if="sheet === 'win'" />
   <DrawSheet v-else-if="sheet === 'draw'" />
-  <WaveSheet v-else-if="sheet === 'wave'" @close="store.dismiss()" @open-ranking="panel = 'ranking'" />
+  <WaveSheet
+    v-else-if="sheet === 'wave'"
+    @close="store.dismiss()"
+    @open-ranking="panel = 'ranking'"
+    @new-run="panel = 'start'"
+  />
   <ShopSheet v-else-if="sheet === 'shop'" />
   <IntroSheet v-else-if="sheet === 'intro'" />
 
