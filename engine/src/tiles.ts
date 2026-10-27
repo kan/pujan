@@ -10,6 +10,11 @@ export type Kind = number;
 
 export const KIND_COUNT = 34;
 
+/** 萬子・筒子・索子の n（1〜9）の種類。役の例やテストで牌を書くときに使う */
+export const man = (n: number): Kind => n - 1;
+export const pin = (n: number): Kind => 8 + n;
+export const sou = (n: number): Kind => 17 + n;
+
 /** すべての種類（0〜33） */
 export const ALL_KINDS: readonly Kind[] = Array.from({ length: KIND_COUNT }, (_, k) => k);
 

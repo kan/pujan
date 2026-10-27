@@ -86,6 +86,33 @@ describe('局の進行', () => {
     expect(found).toBe(3);
   });
 
+  it('山の並びを指定して始められる（チュートリアル用）', () => {
+    const order = { indicators: [EAST], hand: [2, 3, 27, 26], draws: [28, 33, 27, 4] };
+    let k = startKyoku(
+      {
+        rng: createRng(1),
+        composition: defaultComposition(true),
+        mods: modifiersFor(DEFAULT_BASE_RULES, { charms: [], equipment: [] }, null),
+        bakaze: EAST,
+        seat: SOUTH,
+        dealer: false,
+        honba: 0,
+        yakuLevels: {},
+      },
+      order,
+    );
+    expect(k.indicators.map((t) => t.kind)).toEqual([EAST]);
+    expect(k.hand.map((t) => t.kind).sort((a, b) => a - b)).toEqual([2, 3, 26, 27]);
+    const drawn: number[] = [];
+    for (let i = 0; i < 4 && isActing(k); i++) {
+      drawn.push(k.drawn[0].kind);
+      k = step(k, { type: 'discard', zone: 'drawn', index: 0 });
+    }
+    expect(drawn).toEqual(order.draws);
+    // 指定した牌の赤牌は使わない（5萬は赤でない牌）
+    expect(k.river.at(-1)?.red).toBeFalsy();
+  });
+
   it('12巡で必ず終わる', () => {
     for (let seed = 1; seed <= 30; seed++) {
       const k = playOut(newKyoku(seed), seed);

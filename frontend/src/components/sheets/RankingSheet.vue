@@ -8,6 +8,7 @@ import { shiftDays, weekOf } from '@pujan/engine';
 import type { WeeklyRanking } from '@/api/client';
 import { useAccountStore } from '@/stores/account';
 import { summaryText } from '@/lib/labels';
+import NameForm from '../NameForm.vue';
 import SheetLayer from '../SheetLayer.vue';
 
 const emit = defineEmits<{ close: [] }>();
@@ -41,24 +42,6 @@ function go(weeks: number) {
 
 const meListed = computed(() => !!ranking.value?.entries.some((e) => e.isMe));
 
-/* 名前の登録 */
-const nameInput = ref('');
-const nameError = ref('');
-const registering = ref(false);
-const NAME_ERRORS: Record<string, string> = {
-  name_taken: 'その名前はほかの人が使っています。',
-  invalid_name: '名前は2〜20文字で、文字・数字・空白・「_」「-」・絵文字が使えます。',
-  offline: 'サーバーにつながりません。あとでもう一度お試しください。',
-};
-
-async function register(value: string) {
-  registering.value = true;
-  nameError.value = '';
-  const result = await account.registerName(value.trim());
-  registering.value = false;
-  if (result === 'ok') void load();
-  else nameError.value = NAME_ERRORS[result] ?? '登録できませんでした。';
-}
 </script>
 
 <template>
@@ -86,25 +69,7 @@ async function register(value: string) {
       </p>
     </template>
 
-    <template v-if="account.name === null">
-      <h3 class="subhead">ランキングに参加する</h3>
-      <template v-if="account.kanGameName">
-        <p class="note">
-          kan-game.app の名前「{{ account.kanGameName }}」で、プチ麻雀のランキングに載ります。
-        </p>
-        <button class="btn win" type="button" :disabled="registering" @click="register(account.kanGameName!)">
-          この名前で参加する
-        </button>
-      </template>
-      <form v-else class="nameform" @submit.prevent="register(nameInput)">
-        <p class="note">
-          名前は kan-game.app のゲームで共通です。登録すると、プチ麻雀のランキングにこの名前で載ります。名前はあとから変えられません。
-        </p>
-        <input v-model="nameInput" type="text" maxlength="40" autocomplete="nickname" placeholder="名前（2〜20文字）" aria-label="名前" />
-        <button class="btn win" type="submit" :disabled="registering || !nameInput.trim()">登録して参加する</button>
-      </form>
-      <p v-if="nameError" class="note warn" role="alert">{{ nameError }}</p>
-    </template>
+    <NameForm v-if="account.name === null" @registered="load" />
 
     <button class="btn" type="button" @click="emit('close')">閉じる</button>
   </SheetLayer>
@@ -114,23 +79,5 @@ async function register(value: string) {
 .ranking .me {
   color: var(--gold);
   font-weight: 700;
-}
-.subhead {
-  margin: 4px 0 0;
-  font-size: 15px;
-}
-.nameform {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-.nameform input {
-  font: inherit;
-  font-size: 16px;
-  background: var(--felt-dark);
-  color: var(--fg);
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  padding: 10px 12px;
 }
 </style>

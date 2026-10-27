@@ -7,9 +7,10 @@ import { computed, ref } from 'vue';
 import { MAX_CHARMS, bossOf, isDealerKyoku } from '@pujan/engine';
 import { useGameStore } from '@/stores/game';
 import { WIND_NAMES, bossDef, consumableDef, roundLabel } from '@/lib/labels';
+import HandArea from './HandArea.vue';
 import MjTile from './MjTile.vue';
 
-const emit = defineEmits<{ openRef: []; openSettings: []; openInventory: []; openRanking: [] }>();
+const emit = defineEmits<{ openHelp: []; openMenu: []; openInventory: [] }>();
 const store = useGameStore();
 /** 河を広げて全部見せる */
 const riverOpen = ref(false);
@@ -28,10 +29,8 @@ const jokerDora = computed(() => !!k.value && k.value.setup.mods.doraMode !== 'n
 const progress = computed(() => Math.max(0, Math.min(100, (round.value.score / round.value.target) * 100)));
 
 const sel = computed(() => store.selection);
-const isSel = (zone: string, index: number) => !!sel.value && sel.value.zone === zone && sel.value.index === index;
 const usedIds = computed(() => store.winPreview?.tileIds ?? new Set<number>());
 
-const nextMany = computed(() => store.nextTiles.length > 3);
 /** 操作ボタンが 1 つでも出ている */
 const hasAction = computed(() => store.canRedealNow || store.canHold || store.canRiichiSelected || !!store.winPreview);
 
@@ -51,9 +50,8 @@ const hint = computed(() => {
     <header>
       <h1>プチ麻雀</h1>
       <span class="spacer" />
-      <button class="ghost" type="button" @click="emit('openRanking')">順位</button>
-      <button class="ghost" type="button" @click="emit('openRef')">役表</button>
-      <button class="ghost" type="button" @click="emit('openSettings')">設定</button>
+      <button class="ghost" type="button" @click="emit('openHelp')">役</button>
+      <button class="ghost" type="button" aria-haspopup="dialog" @click="emit('openMenu')">メニュー</button>
     </header>
 
     <section class="band" aria-label="局の状況">
@@ -150,76 +148,15 @@ const hint = computed(() => {
       </div>
     </div>
 
-    <div v-if="k" class="play">
-      <div class="holdrow">
-        <span v-if="k.hold.length" class="hg">
-          <span class="hl">保留</span>
-          <template v-for="(t, i) in k.hold" :key="i">
-            <MjTile
-              v-if="t"
-              :kind="t.kind"
-              :red="t.red"
-              :gold="t.gold"
-              :joker="store.jokerOf(t.kind)"
-              size="md"
-              button
-              note="（保留）"
-              :selected="isSel('hold', i)"
-              :used="usedIds.has(t.id)"
-              @click="store.tapTile('hold', i)"
-            />
-            <button
-              v-else
-              class="slot"
-              :class="{ target: store.canHold }"
-              type="button"
-              aria-label="空きの保留枠"
-              @click="store.tapSlot(i)"
-            >
-              空き
-            </button>
-          </template>
-        </span>
-        <span v-if="store.nextTiles.length" class="nextin" :class="{ many: nextMany }" aria-label="次にツモる牌（左から順）">
-          <span class="nl">次</span>
-          <template v-for="(t, i) in store.nextTiles" :key="t.id">
-            <span v-if="i" class="arr" aria-hidden="true">←</span>
-            <MjTile :kind="t.kind" :red="t.red" :gold="t.gold" :joker="store.jokerOf(t.kind)" :size="nextMany ? 'sm' : 'md'" />
-          </template>
-        </span>
-      </div>
-      <div class="handrow">
-        <MjTile
-          v-for="(t, i) in k.hand"
-          :key="t.id"
-          :kind="t.kind"
-          :red="t.red"
-          :gold="t.gold"
-          :joker="store.jokerOf(t.kind)"
-          button
-          :selected="isSel('hand', i)"
-          :used="usedIds.has(t.id)"
-          @click="store.tapTile('hand', i)"
-        />
-        <template v-if="k.drawn.length">
-          <span class="gap" />
-          <MjTile
-            v-for="(t, i) in k.drawn"
-            :key="t.id"
-            class="drawn"
-            :kind="t.kind"
-            :red="t.red"
-            :gold="t.gold"
-            :joker="store.jokerOf(t.kind)"
-            button
-            note="（ツモ）"
-            :selected="isSel('drawn', i)"
-            :used="usedIds.has(t.id)"
-            @click="store.tapTile('drawn', i)"
-          />
-        </template>
-      </div>
-    </div>
+    <HandArea
+      v-if="k"
+      :kyoku="k"
+      :selection="store.selection"
+      :used-ids="usedIds"
+      :can-hold="store.canHold"
+      @tap-tile="store.tapTile"
+      @tap-slot="store.tapSlot"
+    />
 
     <div class="actions">
       <template v-if="store.acting">

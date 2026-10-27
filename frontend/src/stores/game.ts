@@ -14,18 +14,13 @@ import {
   canUseConsumable,
   createGame,
   ENGINE_VERSION,
-  finalizeContext,
-  finalizeScore,
   isActing,
-  isDefaultRules,
   isFinished,
   isJoker,
   newLog,
   randomSeed,
   remainingOf,
   replay,
-  visibleNext,
-  type BaseRules,
   type ConsumableId,
   type GameAction,
   type GameState,
@@ -33,16 +28,8 @@ import {
   type RunLog,
   type Zone,
 } from '@pujan/engine';
-import {
-  browserStorage,
-  clearRunLog,
-  loadRules,
-  loadRunId,
-  loadRunLog,
-  saveRules,
-  saveRunId,
-  saveRunLog,
-} from '@/lib/storage';
+import { browserStorage, clearRunLog, loadRunId, loadRunLog, saveRunId, saveRunLog } from '@/lib/storage';
+import { winPreviewOf } from '@/lib/win-preview';
 import { useAccountStore } from './account';
 
 export interface Selection {
@@ -52,10 +39,9 @@ export interface Selection {
 
 export const useGameStore = defineStore('game', () => {
   const storage = browserStorage();
-  const rules = ref<BaseRules>(loadRules(storage));
-  const log = shallowRef<RunLog>(newLog(0, rules.value));
+  const log = shallowRef<RunLog>(newLog(0));
   // engine の状態は書き換えずに作り直すので、深い追跡はいらない
-  const game = shallowRef<GameState>(createGame(0, rules.value));
+  const game = shallowRef<GameState>(createGame(0));
   const account = useAccountStore();
   const selection = ref<Selection | null>(null);
   /** ランキングに載せるランの、サーバーのランの ID（端末だけのランでは null） */
@@ -102,19 +88,19 @@ export const useGameStore = defineStore('game', () => {
   }
 
   /**
-   * 新しいランを始める。既定のルールなら、サーバーにシードをもらってランキングに載せるランにする
+   * 新しいランを始める。サーバーにシードをもらってランキングに載せるランにする
    * （良い山を手元で探す不正を防ぐため、シードはサーバーが決める。docs/SPEC.md §5.3）。
-   * サーバーにつながらないとき、ルールを変えているときは、端末で決めたシードの端末だけのランになる。
+   * サーバーにつながらないときは、端末で決めたシードの端末だけのランになる。ルールはいつも既定のもの。
    */
   async function startRun() {
     if (starting.value) return;
     starting.value = true;
     try {
-      const ranked = isDefaultRules(rules.value) ? await account.startRankedRun() : null;
+      const ranked = await account.startRankedRun();
       const usable = ranked && ranked.engineVersion === ENGINE_VERSION ? ranked : null;
       const seed = usable?.seed ?? randomSeed();
-      log.value = newLog(seed, rules.value);
-      game.value = createGame(seed, rules.value);
+      log.value = newLog(seed);
+      game.value = createGame(seed);
       runId.value = usable?.id ?? null;
       dismissedAt.value = -1;
       account.clearSubmission();
@@ -207,13 +193,7 @@ export const useGameStore = defineStore('game', () => {
   const canRedealNow = computed(() => !!kyoku.value && canRedeal(kyoku.value));
 
   /** 今のツモで和了れるときの役と点数（親・本場などを掛けたあと） */
-  const winPreview = computed(() => {
-    const k = kyoku.value;
-    if (!acting.value || !k?.win) return null;
-    const score = finalizeScore(k.win.evaluation, finalizeContext(k));
-    const names = score.lines.filter((l) => l.kind === 'yaku').map((l) => l.label);
-    return { names, points: score.points, tileIds: new Set(k.win.tileIds) };
-  });
+  const winPreview = computed(() => winPreviewOf(kyoku.value));
 
   /** 待ち牌と残り枚数（null は万能牌が多くて数えていない） */
   const waitsInfo = computed(() => {
@@ -222,22 +202,11 @@ export const useGameStore = defineStore('game', () => {
     return k.waits.map((kind) => ({ kind, remaining: remainingOf(k, kind) }));
   });
 
-  const nextTiles = computed(() => (kyoku.value ? visibleNext(kyoku.value) : []));
-
   const jokerOf = (kind: Kind) => !!kyoku.value && isJoker(kyoku.value, kind);
 
   const consumableUsable = (id: ConsumableId) => !!kyoku.value && canUseConsumable(kyoku.value, id);
 
-  /* ---------- ルール設定 ---------- */
-
-  function applyRules(next: BaseRules) {
-    rules.value = next;
-    saveRules(storage, next);
-    return startRun();
-  }
-
   return {
-    rules,
     log,
     game,
     run,
@@ -254,7 +223,6 @@ export const useGameStore = defineStore('game', () => {
     canRedealNow,
     winPreview,
     waitsInfo,
-    nextTiles,
     init,
     startRun,
     act,
@@ -265,6 +233,5 @@ export const useGameStore = defineStore('game', () => {
     riichiSelected,
     jokerOf,
     consumableUsable,
-    applyRules,
   };
 });

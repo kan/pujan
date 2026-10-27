@@ -1,11 +1,11 @@
 /**
- * 途中のランとルール設定の保存（localStorage）。
+ * 途中のランなどの保存（localStorage）。
  *
  * ランは状態ではなく操作ログ（engine の RunLog）で保存し、読み込むときに replay() で作り直す。
  * 保存先は小さなインターフェース越しに触る（テストで差し替えられるように。TAKO-SEN の core/storage.ts と同じ形）。
  * 保存先が使えないとき（Safari のプライベートモード、容量超過など）も、遊ぶことはできるようにする。
  */
-import { DEFAULT_BASE_RULES, type BaseRules, type RunLog } from '@pujan/engine';
+import type { BaseRules, RunLog } from '@pujan/engine';
 
 export interface KeyValueStorage {
   getItem(key: string): string | null;
@@ -17,7 +17,7 @@ const RUN_KEY = 'pujan.run.v1';
 const RUN_ID_KEY = 'pujan.run-id.v1';
 const PENDING_KEY = 'pujan.pending.v1';
 const SETTLED_KEY = 'pujan.settled.v1';
-const RULES_KEY = 'pujan.rules.v1';
+const TUTORIAL_KEY = 'pujan.tutorial-seen.v1';
 
 /** 送れなかった記録を持っておく数（古いものから捨てる） */
 const MAX_PENDING = 5;
@@ -117,19 +117,11 @@ export function savePending(storage: KeyValueStorage | null, pending: readonly P
   write(storage, PENDING_KEY, pending.slice(-MAX_PENDING));
 }
 
-/** ルール設定（巡数・保留枠・ネクスト・赤牌・海底）。足りない項目は既定値で埋める */
-export function loadRules(storage: KeyValueStorage | null): BaseRules {
-  const v = read(storage, RULES_KEY) as Partial<BaseRules> | null;
-  const r = { ...DEFAULT_BASE_RULES };
-  if (!v) return r;
-  if (typeof v.turns === 'number') r.turns = v.turns;
-  if (typeof v.holdSlots === 'number') r.holdSlots = v.holdSlots;
-  if (typeof v.next === 'number') r.next = v.next;
-  if (typeof v.redFives === 'boolean') r.redFives = v.redFives;
-  if (typeof v.haitei === 'boolean') r.haitei = v.haitei;
-  return r;
+/** チュートリアルを一度でも開いた（または「あとで」を選んだ）。初めて開いたときだけ、見るかどうかを聞く */
+export function loadTutorialSeen(storage: KeyValueStorage | null): boolean {
+  return read(storage, TUTORIAL_KEY) === true;
 }
 
-export function saveRules(storage: KeyValueStorage | null, rules: BaseRules): void {
-  write(storage, RULES_KEY, rules);
+export function saveTutorialSeen(storage: KeyValueStorage | null): void {
+  write(storage, TUTORIAL_KEY, true);
 }

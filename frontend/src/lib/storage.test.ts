@@ -1,7 +1,14 @@
 import { describe, expect, it } from 'vitest';
-import { DEFAULT_BASE_RULES, newLog } from '@pujan/engine';
+import { newLog } from '@pujan/engine';
 import { memoryStorage } from './memory-storage';
-import { clearRunLog, loadRules, loadRunLog, saveRules, saveRunLog, type KeyValueStorage } from './storage';
+import {
+  clearRunLog,
+  loadRunLog,
+  loadTutorialSeen,
+  saveRunLog,
+  saveTutorialSeen,
+  type KeyValueStorage,
+} from './storage';
 
 describe('操作ログの保存', () => {
   it('保存したログを読み戻せる', () => {
@@ -43,18 +50,11 @@ describe('操作ログの保存', () => {
   });
 });
 
-describe('ルール設定', () => {
-  it('保存がなければ既定値、足りない項目や型の違う項目は既定値で埋める', () => {
+describe('チュートリアル', () => {
+  it('開いたことを覚える', () => {
     const s = memoryStorage();
-    expect(loadRules(s)).toEqual(DEFAULT_BASE_RULES);
-    s.setItem('pujan.rules.v1', JSON.stringify({ turns: 16, holdSlots: '2', redFives: false }));
-    expect(loadRules(s)).toEqual({ ...DEFAULT_BASE_RULES, turns: 16, redFives: false });
-  });
-
-  it('保存した設定を読み戻せる', () => {
-    const s = memoryStorage();
-    const r = { turns: 8, holdSlots: 0, next: 1, redFives: false, haitei: false };
-    saveRules(s, r);
-    expect(loadRules(s)).toEqual(r);
+    expect(loadTutorialSeen(s)).toBe(false);
+    saveTutorialSeen(s);
+    expect(loadTutorialSeen(s)).toBe(true);
   });
 });

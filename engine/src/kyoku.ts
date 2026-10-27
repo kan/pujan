@@ -110,8 +110,36 @@ function buildWall(rng: number, comp: Composition): [number, Tile[]] {
   return shuffle(rng, tiles);
 }
 
-export function startKyoku(setup: KyokuSetup): KyokuState {
+/** 山の並びの指定（チュートリアル用）。指定した牌を山から抜き、この順で引かれるように山の端に並べる */
+export interface WallOrder {
+  /** ドラ表示牌 */
+  indicators: readonly Kind[];
+  /** 配牌（4 枚） */
+  hand: readonly Kind[];
+  /** ツモの順（1 巡目から） */
+  draws: readonly Kind[];
+}
+
+function arrangeWall(wall: Tile[], order: WallOrder): Tile[] {
+  const rest = wall.slice();
+  // 赤牌・金牌でない牌を優先して抜く（絵柄を説明どおりにするため）
+  const take = (k: Kind): Tile => {
+    const i = rest.findIndex((t) => t.kind === k && !t.red && !t.gold);
+    const j = i >= 0 ? i : rest.findIndex((t) => t.kind === k);
+    if (j < 0) throw new Error(`no ${k} left in the wall`);
+    return rest.splice(j, 1)[0];
+  };
+  const indicators = order.indicators.map(take);
+  const hand = order.hand.map(take);
+  const draws = order.draws.map(take);
+  // 山は末尾から引く: ドラ表示（pop）→ 配牌（末尾 4 枚）→ ツモ（pop）
+  return [...rest, ...draws.reverse(), ...hand, ...indicators.reverse()];
+}
+
+/** 局を始める。order を渡すと、山の並びをその通りにする（チュートリアル用。ふつうのランでは渡さない） */
+export function startKyoku(setup: KyokuSetup, order?: WallOrder): KyokuState {
   let [rng, wall] = buildWall(setup.rng, setup.composition);
+  if (order) wall = arrangeWall(wall, order);
   const indicators: Tile[] = [];
   for (let i = 0; i < setup.mods.doraIndicators; i++) indicators.push(wall.pop()!);
   const doraKinds = indicators.map((t) => doraOf(t.kind));

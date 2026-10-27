@@ -169,15 +169,15 @@ describe('ランキングに載せるラン', () => {
     expect(useAccountStore().submission?.status).toBe('recorded');
   });
 
-  it('つながらなければ端末だけのラン。ルールを変えたランもサーバーに聞かない', async () => {
+  it('つながらなければ端末だけのラン。つながってから始めたランはサーバーのラン', async () => {
     const store = useGameStore();
     await store.init();
     expect(store.runId).toBeNull();
 
     server.online = true;
-    await store.applyRules({ ...store.rules, holdSlots: 1 });
-    expect(store.runId).toBeNull();
-    expect(store.log.seed).not.toBe(server.seed);
+    await store.startRun();
+    expect(store.runId).toBe('run-1');
+    expect(store.log.seed).toBe(server.seed);
   });
 
   it('サーバーの一時的な障害（5xx）は送り直し待ちにし、残っている間は新しいランを端末だけのランにする', async () => {

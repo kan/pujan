@@ -24,7 +24,7 @@ const submissionText = computed(() => {
   if (!s || run.value.phase === 'shop') return '';
   switch (s.status) {
     case 'local':
-      return 'このランは端末の中だけのランなので、ランキングには載りません（サーバーにつながらなかったか、ルールを変えています）。';
+      return 'このランは、始めたときにサーバーにつながらなかったので、ランキングには載りません。';
     case 'sending':
       return '記録を送っています…';
     case 'recorded':

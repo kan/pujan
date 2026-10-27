@@ -12,7 +12,7 @@ import { browserStorage, loadPending, loadSettledRunId, savePending, saveSettled
 
 /** 今のランの記録の様子（ラン終了のシートに出す） */
 export type Submission =
-  /** 端末だけのラン（サーバーにつながらなかった、ルールを変えた） */
+  /** 端末だけのラン（始めたときにサーバーにつながらなかった） */
   | { status: 'local' }
   | { status: 'sending' }
   | { status: 'recorded'; result: FinishedRun }
