@@ -9,7 +9,7 @@ import { useGameStore } from '@/stores/game';
 import { WIND_NAMES, bossDef, consumableDef, roundLabel } from '@/lib/labels';
 import MjTile from './MjTile.vue';
 
-const emit = defineEmits<{ openRef: []; openSettings: []; openInventory: [] }>();
+const emit = defineEmits<{ openRef: []; openSettings: []; openInventory: []; openRanking: [] }>();
 const store = useGameStore();
 /** 河を広げて全部見せる */
 const riverOpen = ref(false);
@@ -51,6 +51,7 @@ const hint = computed(() => {
     <header>
       <h1>プチ麻雀</h1>
       <span class="spacer" />
+      <button class="ghost" type="button" @click="emit('openRanking')">順位</button>
       <button class="ghost" type="button" @click="emit('openRef')">役表</button>
       <button class="ghost" type="button" @click="emit('openSettings')">設定</button>
     </header>

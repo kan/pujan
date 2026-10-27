@@ -11,13 +11,13 @@
 
 ## 現在の状態
 
-`docs/SPEC.md` §6「開発フェーズ」のフェーズ 2（画面）まで。
+`docs/SPEC.md` §6「開発フェーズ」のフェーズ 3（バックエンド）まで。dev・production のリモートの環境はまだ作っていない（手順は `docs/DEPLOY.md`）。
 
 - `engine/`: 役判定・点数・局の状態機械・ラン・ショップ・操作ログの再生（`game.ts`）・シミュレーション（`sim.ts`）。テストあり（`engine/tests/`。プロトタイプとの突き合わせを含む）
-- `frontend/`: プロトタイプから移植した画面。サーバーにはまだつながず、途中のランは localStorage の操作ログで再開する
-- `backend/`: `/api/health` と ID 基盤への中継だけ。`wrangler.jsonc` はローカルの設定だけで、dev・production の環境はまだない
+- `frontend/`: プロトタイプから移植した画面。途中のランは localStorage の操作ログで再開する。ランキングに載せるランはサーバーにシードをもらって始め、終わったら記録を送る
+- `backend/`: kan-game.app の ID 連携、ランの記録（操作ログの再生による検証）、週ごとのランキング、退会の RPC。テストは `backend/test/`（Workers のランタイムで動く）
 
-次に取りかかるのはフェーズ 3（バックエンド）。
+次に取りかかるのはフェーズ 3.5（ヘルプ）。
 
 ## リポジトリ構成
 
@@ -100,7 +100,11 @@ ID・名前・退会は kan/game と共通。kan/game 側の変更（`ALLOWED_OR
 
 ### リモートの操作
 
-D1・Worker などリモートのリソースの作成、secret の登録、デプロイは、利用者の承認を得てから行う。
+D1・Worker などリモートのリソースの作成、secret の登録、デプロイは、利用者の承認を得てから行う。手順は `docs/DEPLOY.md`。
+
+### kan/game から写したファイル
+
+`backend/src/lib/id-token.ts`・`id-rpc.ts` と `backend/test/kan-game/` は kan/game のファイルの写し（kan/game docs/ID_DESIGN.md「鍵の管理」）。書き換えない。kan/game 側が変わったら、同じ組をまとめて写し直す。
 
 ## 書き方
 

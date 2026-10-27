@@ -655,6 +655,18 @@ span.tile {
   padding: 0 2px;
   line-height: 1.2;
 }
+/* 朱塗りで赤くなった、5 以外の牌（素材に赤版がない）。赤の 5 は素材の赤牌の絵を使う */
+.tile.akamark::before {
+  content: '';
+  position: absolute;
+  top: calc(var(--w) * 0.08);
+  left: calc(var(--w) * 0.08);
+  width: calc(var(--w) * 0.18);
+  height: calc(var(--w) * 0.18);
+  border-radius: 50%;
+  background: var(--man);
+  box-shadow: 0 0 0 1px #fff;
+}
 .tile.drawn {
   margin-left: 4px;
 }

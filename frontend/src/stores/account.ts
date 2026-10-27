@@ -1,0 +1,121 @@
+/**
+ * サーバーとのやりとり（docs/SPEC.md §5.3・§5.4）: ランキングに出す名前、ランの開始と記録、週ごとのランキング。
+ *
+ * ランキングに載るのは、サーバーが渡したシードで始めたランだけ。サーバーにつながらないときは端末だけのランになる
+ * （遊べるが記録しない）。終わったランの記録が送れなかったら端末に残し、次に開いたときなどに送り直す。
+ */
+import { defineStore } from 'pinia';
+import { ref } from 'vue';
+import type { RunLog } from '@pujan/engine';
+import { api, ApiError, ensureId, type FinishedRun } from '@/api/client';
+import { browserStorage, loadPending, loadSettledRunId, savePending, saveSettledRunId } from '@/lib/storage';
+
+/** 今のランの記録の様子（ラン終了のシートに出す） */
+export type Submission =
+  /** 端末だけのラン（サーバーにつながらなかった、ルールを変えた） */
+  | { status: 'local' }
+  | { status: 'sending' }
+  | { status: 'recorded'; result: FinishedRun }
+  /** 送れなかった。端末に残して、あとで送り直す */
+  | { status: 'queued' }
+  /** サーバーが受け付けなかった（新しいランを始めたあと、版の違いなど） */
+  | { status: 'rejected'; code: string };
+
+/** つながらないなどで失敗したら null */
+const orNull = <T>(p: Promise<T>): Promise<T | null> => p.catch(() => null);
+
+/** 送り直せば通るかもしれない失敗か（つながらなかった、サーバーの一時的な障害） */
+const isRetryable = (e: unknown) => !(e instanceof ApiError) || e.status === 0 || e.status >= 500;
+
+export const useAccountStore = defineStore('account', () => {
+  const storage = browserStorage();
+  /** ランキングに出す名前（公開に同意する前は null、まだ聞いていなければ undefined） */
+  const name = ref<string | null | undefined>(undefined);
+  /** kan-game.app の名前（ほかのゲームで登録したもの）。あれば、ここでは公開への同意だけを求める */
+  const kanGameName = ref<string | null>(null);
+  const submission = ref<Submission | null>(null);
+  /** 送っている途中の記録（新しいランを始める前に待つ） */
+  let sending: Promise<void> = Promise.resolve();
+
+  async function loadMe() {
+    kanGameName.value = (await ensureId())?.name ?? null;
+    const me = await orNull(api.me());
+    if (me) name.value = me.name;
+  }
+
+  /** 名前を登録して公開に同意する。失敗したら理由のコード */
+  async function registerName(value: string): Promise<'ok' | string> {
+    try {
+      name.value = (await api.registerName(value)).name;
+      return 'ok';
+    } catch (e) {
+      return e instanceof ApiError ? e.code : 'error';
+    }
+  }
+
+  /**
+   * ランキングに載せるランを始める。サーバーにつながらなければ null（端末だけのランにする）。
+   * サーバーは新しいランを始めると、終わっていない前のランを記録できなくする。そのため、前のランの記録を送り終えてから始め、
+   * 送り直し待ちが残っている（送れなかった）ときは、その記録を失わないように端末だけのランにする
+   */
+  async function startRankedRun() {
+    await sending;
+    await flushPending();
+    if (loadPending(storage).length) return null;
+    return orNull(api.startRun());
+  }
+
+  /** 送り直す。送れた（または断られた）ものだけを外し、そのあいだに足された記録は残す */
+  async function flushPending() {
+    const done = new Set<string>();
+    for (const p of loadPending(storage)) {
+      try {
+        await api.finishRun(p.runId, p.log);
+        done.add(p.runId);
+      } catch (e) {
+        if (!isRetryable(e)) done.add(p.runId);
+      }
+    }
+    if (done.size) savePending(storage, loadPending(storage).filter((p) => !done.has(p.runId)));
+  }
+
+  /** 終わったランの記録を送る。runId が null なら端末だけのラン。記録が済んだランは送らない */
+  function submit(runId: string | null, log: RunLog): Promise<void> {
+    if (!runId) {
+      submission.value = { status: 'local' };
+      return Promise.resolve();
+    }
+    if (loadSettledRunId(storage) === runId) return Promise.resolve();
+    sending = send(runId, log);
+    return sending;
+  }
+
+  async function send(runId: string, log: RunLog) {
+    // 送り直し待ちに同じランがあれば外す（flushPending と二重に送らない）
+    savePending(
+      storage,
+      loadPending(storage).filter((p) => p.runId !== runId),
+    );
+    submission.value = { status: 'sending' };
+    try {
+      submission.value = { status: 'recorded', result: await api.finishRun(runId, log) };
+      saveSettledRunId(storage, runId);
+    } catch (e) {
+      if (isRetryable(e)) {
+        savePending(storage, [...loadPending(storage), { runId, log }]);
+        submission.value = { status: 'queued' };
+      } else {
+        submission.value = { status: 'rejected', code: (e as ApiError).code };
+        saveSettledRunId(storage, runId);
+      }
+    }
+  }
+
+  function clearSubmission() {
+    submission.value = null;
+  }
+
+  const weeklyRanking = (week?: string) => orNull(api.weeklyRanking(week));
+
+  return { name, kanGameName, submission, loadMe, registerName, startRankedRun, flushPending, submit, clearSubmission, weeklyRanking };
+});

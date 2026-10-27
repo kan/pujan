@@ -4,9 +4,9 @@
  * プロトタイプにあった「テスト用：祝儀＋20」は、操作ログで再生できない操作なので置かない。
  */
 import { reactive } from 'vue';
-import { WAVE_TARGETS, type BaseRules } from '@pujan/engine';
+import { DEFAULT_BASE_RULES, WAVE_TARGETS, type BaseRules } from '@pujan/engine';
 import { useGameStore } from '@/stores/game';
-import { WIND_NAMES } from '@/lib/labels';
+import { WIND_NAMES, rulesText } from '@/lib/labels';
 import SheetLayer from '../SheetLayer.vue';
 
 const emit = defineEmits<{ close: [] }>();
@@ -48,7 +48,9 @@ function applyRules() {
         <option :value="false">なし</option>
       </select>
     </div>
-    <p class="note">基本ルールの調整用です。適用すると新しいランを始めます。場の目標点は{{ targets }}点です。</p>
+    <p class="note">
+      基本ルールの調整用です。適用すると新しいランを始めます。既定のルール（{{ rulesText(DEFAULT_BASE_RULES) }}）から変えたランは、ランキングに載りません。場の目標点は{{ targets }}点です。
+    </p>
     <button class="btn win" type="button" @click="applyRules">適用して新しいラン</button>
     <button class="btn" type="button" @click="emit('close')">閉じる</button>
   </SheetLayer>

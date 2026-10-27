@@ -6,6 +6,13 @@
  * デイリーランと、サーバーでの操作ログの再生（不正の検証）ができる。
  */
 
+/** 新しいランのシード（0〜2^31-1）。Web Crypto の乱数で決める（ブラウザと Workers のどちらにもある） */
+export function randomSeed(): number {
+  const a = new Uint32Array(1);
+  crypto.getRandomValues(a);
+  return a[0] >>> 1;
+}
+
 export function createRng(seed: number): number {
   return seed === 0 ? 1 : (seed | 0) || 1;
 }

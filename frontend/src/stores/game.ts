@@ -13,11 +13,15 @@ import {
   canRiichi,
   canUseConsumable,
   createGame,
+  ENGINE_VERSION,
   finalizeContext,
   finalizeScore,
   isActing,
+  isDefaultRules,
+  isFinished,
   isJoker,
   newLog,
+  randomSeed,
   remainingOf,
   replay,
   visibleNext,
@@ -29,18 +33,21 @@ import {
   type RunLog,
   type Zone,
 } from '@pujan/engine';
-import { browserStorage, clearRunLog, loadRules, loadRunLog, saveRules, saveRunLog } from '@/lib/storage';
+import {
+  browserStorage,
+  clearRunLog,
+  loadRules,
+  loadRunId,
+  loadRunLog,
+  saveRules,
+  saveRunId,
+  saveRunLog,
+} from '@/lib/storage';
+import { useAccountStore } from './account';
 
 export interface Selection {
   zone: Zone;
   index: number;
-}
-
-/** 0〜2^31-1 のシード */
-function randomSeed(): number {
-  const a = new Uint32Array(1);
-  crypto.getRandomValues(a);
-  return a[0] >>> 1;
 }
 
 export const useGameStore = defineStore('game', () => {
@@ -49,7 +56,12 @@ export const useGameStore = defineStore('game', () => {
   const log = shallowRef<RunLog>(newLog(0, rules.value));
   // engine の状態は書き換えずに作り直すので、深い追跡はいらない
   const game = shallowRef<GameState>(createGame(0, rules.value));
+  const account = useAccountStore();
   const selection = ref<Selection | null>(null);
+  /** ランキングに載せるランの、サーバーのランの ID（端末だけのランでは null） */
+  const runId = ref<string | null>(null);
+  /** 新しいランを始めている途中（サーバーにシードをもらっている） */
+  const starting = ref(false);
   /**
    * 場の案内や場の結果を閉じたときの操作の数。操作が進めば古くなるので、次の場ではまた出る。
    * 保存はしない（開き直したときに、まだ何もしていなければもう一度出る）
@@ -89,22 +101,45 @@ export const useGameStore = defineStore('game', () => {
     selection.value = acting.value ? { zone: 'drawn', index: 0 } : null;
   }
 
-  function startRun(seed = randomSeed()) {
-    log.value = newLog(seed, rules.value);
-    game.value = createGame(seed, rules.value);
-    dismissedAt.value = -1;
-    saveRunLog(storage, log.value);
-    selectDefault();
+  /**
+   * 新しいランを始める。既定のルールなら、サーバーにシードをもらってランキングに載せるランにする
+   * （良い山を手元で探す不正を防ぐため、シードはサーバーが決める。docs/SPEC.md §5.3）。
+   * サーバーにつながらないとき、ルールを変えているときは、端末で決めたシードの端末だけのランになる。
+   */
+  async function startRun() {
+    if (starting.value) return;
+    starting.value = true;
+    try {
+      const ranked = isDefaultRules(rules.value) ? await account.startRankedRun() : null;
+      const usable = ranked && ranked.engineVersion === ENGINE_VERSION ? ranked : null;
+      const seed = usable?.seed ?? randomSeed();
+      log.value = newLog(seed, rules.value);
+      game.value = createGame(seed, rules.value);
+      runId.value = usable?.id ?? null;
+      dismissedAt.value = -1;
+      account.clearSubmission();
+      saveRunLog(storage, log.value);
+      saveRunId(storage, runId.value);
+      selectDefault();
+    } finally {
+      starting.value = false;
+    }
   }
 
   /** 保存してある途中のランを読み込む。なければ（再生できなければ）新しいランを始める */
-  function init() {
+  async function init() {
+    void account.loadMe();
     const saved = loadRunLog(storage);
     if (saved) {
       try {
         game.value = replay(saved);
         log.value = saved;
+        runId.value = loadRunId(storage);
         selectDefault();
+        // 終わったランの結果の画面で開き直した: 記録をもう一度送る（記録済みなら同じ成績が返る）。
+        // submit が送り直し待ちから同じランを外すので、flushPending より先に呼ぶ
+        if (isFinished(game.value)) void account.submit(runId.value, log.value);
+        void account.flushPending();
         return;
       } catch (e) {
         // engine の版が変わった、壊れているなど。続きは遊べないので新しく始める
@@ -112,7 +147,8 @@ export const useGameStore = defineStore('game', () => {
         clearRunLog(storage);
       }
     }
-    startRun();
+    void account.flushPending();
+    await startRun();
   }
 
   /** 操作を適用し、ログに積んで保存する。できない操作なら false */
@@ -126,6 +162,8 @@ export const useGameStore = defineStore('game', () => {
     log.value = { ...log.value, actions: [...log.value.actions, action] };
     saveRunLog(storage, log.value);
     selectDefault();
+    // ランが終わった（ラン終了・全場クリア）: 記録を送る
+    if (isFinished(game.value)) void account.submit(runId.value, log.value);
     return true;
   }
 
@@ -195,7 +233,7 @@ export const useGameStore = defineStore('game', () => {
   function applyRules(next: BaseRules) {
     rules.value = next;
     saveRules(storage, next);
-    startRun();
+    return startRun();
   }
 
   return {
@@ -206,6 +244,8 @@ export const useGameStore = defineStore('game', () => {
     kyoku,
     shownKyoku,
     selection,
+    runId,
+    starting,
     showIntro,
     showWaveResult,
     acting,

@@ -7,3 +7,4 @@ export * from './items.js';
 export * from './kyoku.js';
 export * from './run.js';
 export * from './game.js';
+export * from './week.js';

@@ -5,6 +5,7 @@
  * 役表・設定・持ち物は、プレイヤーが開いたときだけ出す。
  */
 import { computed, ref } from 'vue';
+import { useAccountStore } from '@/stores/account';
 import { useGameStore } from '@/stores/game';
 import TableView from '@/components/TableView.vue';
 import DrawSheet from '@/components/sheets/DrawSheet.vue';
@@ -15,11 +16,16 @@ import ShopSheet from '@/components/sheets/ShopSheet.vue';
 import WaveSheet from '@/components/sheets/WaveSheet.vue';
 import WinSheet from '@/components/sheets/WinSheet.vue';
 import YakuSheet from '@/components/sheets/YakuSheet.vue';
+import RankingSheet from '@/components/sheets/RankingSheet.vue';
+import SheetLayer from '@/components/SheetLayer.vue';
 
 const store = useGameStore();
-store.init();
+const account = useAccountStore();
+void store.init();
+// オフラインの間に送れなかった記録を、つながったら送り直す
+window.addEventListener('online', () => void account.flushPending());
 
-type Panel = 'ref' | 'settings' | 'inventory';
+type Panel = 'ref' | 'settings' | 'inventory' | 'ranking';
 const panel = ref<Panel | null>(null);
 
 const sheet = computed(() => {
@@ -32,14 +38,24 @@ const sheet = computed(() => {
 </script>
 
 <template>
-  <TableView @open-ref="panel = 'ref'" @open-settings="panel = 'settings'" @open-inventory="panel = 'inventory'" />
+  <TableView
+    @open-ref="panel = 'ref'"
+    @open-settings="panel = 'settings'"
+    @open-inventory="panel = 'inventory'"
+    @open-ranking="panel = 'ranking'"
+  />
 
-  <YakuSheet v-if="panel === 'ref'" @close="panel = null" />
+  <!-- 新しいランのシードをサーバーにもらっている間は、前のランを触らせない -->
+  <SheetLayer v-if="store.starting" label="準備中">
+    <p class="note">新しいランを準備しています…</p>
+  </SheetLayer>
+  <YakuSheet v-else-if="panel === 'ref'" @close="panel = null" />
+  <RankingSheet v-else-if="panel === 'ranking'" @close="panel = null" />
   <SettingsSheet v-else-if="panel === 'settings'" @close="panel = null" />
   <InventorySheet v-else-if="panel === 'inventory'" @close="panel = null" />
   <WinSheet v-else-if="sheet === 'win'" />
   <DrawSheet v-else-if="sheet === 'draw'" />
-  <WaveSheet v-else-if="sheet === 'wave'" @close="store.dismiss()" />
+  <WaveSheet v-else-if="sheet === 'wave'" @close="store.dismiss()" @open-ranking="panel = 'ranking'" />
   <ShopSheet v-else-if="sheet === 'shop'" />
   <IntroSheet v-else-if="sheet === 'intro'" />
 </template>

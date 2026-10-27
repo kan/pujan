@@ -97,6 +97,8 @@ export interface RunState {
   afterShop: AfterShop | null;
   /** 直前に突破した場の祝儀（ショップの前に表示する） */
   lastWaveBonus: WaveBonus | null;
+  /** 終わった場の点数（突破できなかった最後の場を含む）。ランキングの合計点に使う */
+  waveScores: number[];
 }
 
 function newRound(rng: number, wave: number): [number, Round] {
@@ -130,6 +132,7 @@ export function createRun(seed: number, base: BaseRules = DEFAULT_BASE_RULES, st
     shop: null,
     afterShop: null,
     lastWaveBonus: null,
+    waveScores: [],
   };
 }
 
@@ -216,8 +219,9 @@ export function settleKyoku(run: RunState, result: KyokuResult, renchan = false)
   return openShop(next, 'nextKyoku');
 }
 
-function endWave(run: RunState): RunState {
-  const { score, target } = run.round;
+function endWave(ended: RunState): RunState {
+  const { score, target } = ended.round;
+  const run = { ...ended, waveScores: [...ended.waveScores, score] };
   if (score < target) return { ...run, phase: 'over', shop: null, afterShop: null };
   const bonus: WaveBonus = {
     clear: 3,
@@ -227,6 +231,22 @@ function endWave(run: RunState): RunState {
   const next = { ...run, money: run.money + bonus.clear + bonus.interest + bonus.over, lastWaveBonus: bonus };
   if (run.wave >= WAVE_COUNT - 1) return { ...next, phase: 'cleared', shop: null, afterShop: null };
   return openShop(next, 'nextWave');
+}
+
+/** 終わったランの成績（ランキングに使う。docs/SPEC.md §5.4） */
+export interface RunSummary {
+  /** 突破した場の数（0〜4。4 は全場クリア） */
+  wavesCleared: number;
+  /** 終わった場の点数の合計 */
+  totalScore: number;
+}
+
+export function runSummary(run: RunState): RunSummary {
+  if (run.phase !== 'over' && run.phase !== 'cleared') throw new Error('run has not finished');
+  return {
+    wavesCleared: run.phase === 'cleared' ? WAVE_COUNT : run.wave,
+    totalScore: run.waveScores.reduce((a, s) => a + s, 0),
+  };
 }
 
 /* ---------- ショップ ---------- */

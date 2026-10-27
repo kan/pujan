@@ -1,8 +1,8 @@
 {
   "$schema": "../node_modules/wrangler/config-schema.json",
-  // The top level is for local development (`npm run dev:roji`, AGENTS.md「ローカル開発」).
-  // env.dev (pujan-dev.kan-game.app) and env.production (pujan.kan-game.app) are added when the
-  // remote resources exist: creating them, registering secrets and deploying need the owner's approval.
+  // The top level is for local development (`npm run dev:roji`, AGENTS.md「ローカル開発の起動」).
+  // env.dev (pujan-dev.kan-game.app) and env.production (pujan.kan-game.app) are below. Creating their
+  // remote resources and deploying need the owner's approval (docs/DEPLOY.md).
   "name": "pujan-local",
   "main": "src/index.ts",
   "compatibility_date": "2026-10-01",
@@ -32,4 +32,61 @@
   // The kan-game.app ID platform (kan/game). /api/id/* is passed to it. Locally it is kan/game's
   // `wrangler dev`, found through the dev registry
   "services": [{ "binding": "ID", "service": "kan-game-local" }],
+
+  // 終わったランの操作ログをサーバーで再生して確かめる（1 ランで 200ms ほど）。Workers の有料プランが前提
+  // （無料プランの CPU 時間の上限 10ms には収まらない）。docs/DEPLOY.md を参照
+
+  "env": {
+    // --- 開発環境（pujan-dev.kan-game.app）: `npm run deploy:dev -w backend`。手順は docs/DEPLOY.md ---
+    "dev": {
+      "name": "pujan-dev",
+      "routes": [{ "pattern": "pujan-dev.kan-game.app", "custom_domain": true }],
+      "vars": {
+        "ENVIRONMENT": "dev",
+        "FRONTEND_URL": "https://pujan-dev.kan-game.app",
+        "ALLOWED_ORIGINS": "https://pujan-dev.kan-game.app",
+        // kan/game の env.dev（その wrangler.jsonc）と一致させる。鍵を入れ替えるときは kan/game
+        // docs/ID_DESIGN.md「鍵の管理」に従い、新しい一覧をここへ写す
+        "ID_COOKIE_NAME": "__Secure-kgdev_id",
+        "ID_ISSUER": "dev.kan-game.app",
+        "ID_PUBLIC_KEYS": "[{\"kid\":\"2026-10-18-2515ed\",\"kty\":\"EC\",\"crv\":\"P-256\",\"x\":\"0KpEL8A2l9DupwZ2uVJVr_ZGy-sRbGJcJg-2Wwi8McU\",\"y\":\"yMVIO135BT3klr-T0Xtr4cRkdkAvfkwxAMaTzoH5EC4\"}]",
+      },
+      "d1_databases": [
+        {
+          "binding": "DB",
+          "database_name": "pujan-dev",
+          // `npx wrangler d1 create pujan-dev` の結果を書く（docs/DEPLOY.md）
+          "database_id": "REPLACE_WITH_PUJAN_DEV_DATABASE_ID",
+          "migrations_dir": "migrations",
+        },
+      ],
+      // kan/game の開発用 Worker。退会のときに GAME_PUJAN として GameService（src/game-service.ts）を呼び返す
+      "services": [{ "binding": "ID", "service": "kan-game-dev" }],
+    },
+
+    // --- 本番（pujan.kan-game.app）: ルートで `npm run deploy` ---
+    "production": {
+      "name": "pujan",
+      "routes": [{ "pattern": "pujan.kan-game.app", "custom_domain": true }],
+      "vars": {
+        "ENVIRONMENT": "production",
+        "FRONTEND_URL": "https://pujan.kan-game.app",
+        "ALLOWED_ORIGINS": "https://pujan.kan-game.app",
+        // kan/game の env.production と一致させる
+        "ID_COOKIE_NAME": "__Secure-kg_id",
+        "ID_ISSUER": "kan-game.app",
+        "ID_PUBLIC_KEYS": "[{\"kid\":\"2026-10-18-ccfc63\",\"kty\":\"EC\",\"crv\":\"P-256\",\"x\":\"ddT7jKLdotzN141EdW32MjeKrySOCqm_OGKRbA27NBY\",\"y\":\"UR7l_tKX9mUzRzJElH_IFWQ36a0PggvU803FVXI_yqk\"}]",
+      },
+      "d1_databases": [
+        {
+          "binding": "DB",
+          "database_name": "pujan-prod",
+          // `npx wrangler d1 create pujan-prod` の結果を書く（docs/DEPLOY.md）
+          "database_id": "REPLACE_WITH_PUJAN_PROD_DATABASE_ID",
+          "migrations_dir": "migrations",
+        },
+      ],
+      "services": [{ "binding": "ID", "service": "kan-game" }],
+    },
+  },
 }

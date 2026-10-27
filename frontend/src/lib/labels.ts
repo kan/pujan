@@ -6,6 +6,8 @@ import {
   EQUIPMENT,
   KYOKU_PER_WAVE,
   MODS,
+  WAVE_COUNT,
+  type BaseRules,
   type BossId,
   type CharmId,
   type Composition,
@@ -14,6 +16,7 @@ import {
   type Kind,
   type Offer,
   type RunState,
+  type RunSummary,
 } from '@pujan/engine';
 
 export const WIND_NAMES = ['東', '南', '西', '北'] as const;
@@ -32,6 +35,16 @@ export function roundLabel(wave: number, kyoku: number, honba: number, dealer: b
 /** 山にある枚数と赤・金（「4枚・赤1」） */
 export function compositionText(c: Composition, k: Kind): string {
   return `${c.count[k]}枚${c.red[k] ? `・赤${c.red[k]}` : ''}${c.gold[k] ? `・金${c.gold[k]}` : ''}`;
+}
+
+/** ランの成績（「2場突破・合計3,000点」「全場クリア・合計…」） */
+export function summaryText(s: RunSummary): string {
+  return `${s.wavesCleared >= WAVE_COUNT ? '全場クリア' : `${s.wavesCleared}場突破`}・合計${s.totalScore.toLocaleString()}点`;
+}
+
+/** 基本ルールの説明（「12巡・保留3枠・ネクスト2枚・赤牌あり・海底あり」） */
+export function rulesText(r: BaseRules): string {
+  return `${r.turns}巡・保留${r.holdSlots}枠・ネクスト${r.next}枚・赤牌${r.redFives ? 'あり' : 'なし'}・海底${r.haitei ? 'あり' : 'なし'}`;
 }
 
 /** 局の結果のシートの、精算ボタンの文言（オーラスのあとは場の判定、それ以外はショップ） */

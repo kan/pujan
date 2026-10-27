@@ -14,7 +14,13 @@ export interface KeyValueStorage {
 }
 
 const RUN_KEY = 'pujan.run.v1';
+const RUN_ID_KEY = 'pujan.run-id.v1';
+const PENDING_KEY = 'pujan.pending.v1';
+const SETTLED_KEY = 'pujan.settled.v1';
 const RULES_KEY = 'pujan.rules.v1';
+
+/** 送れなかった記録を持っておく数（古いものから捨てる） */
+const MAX_PENDING = 5;
 
 /** localStorage。触るだけで例外を投げる環境があるので、そのときは null */
 export function browserStorage(): KeyValueStorage | null {
@@ -73,6 +79,42 @@ export function clearRunLog(storage: KeyValueStorage | null): void {
   } catch {
     // 消せなくても次の保存で上書きされる
   }
+}
+
+/** 今のランをランキングに載せるときの、サーバーのランの ID（端末だけのランでは null） */
+export function loadRunId(storage: KeyValueStorage | null): string | null {
+  const v = read(storage, RUN_ID_KEY);
+  return typeof v === 'string' ? v : null;
+}
+
+export function saveRunId(storage: KeyValueStorage | null, runId: string | null): void {
+  write(storage, RUN_ID_KEY, runId);
+}
+
+/** 記録が済んだ（または断られた）ランの ID。開き直したときに同じランを送り直さないため */
+export function loadSettledRunId(storage: KeyValueStorage | null): string | null {
+  const v = read(storage, SETTLED_KEY);
+  return typeof v === 'string' ? v : null;
+}
+
+export function saveSettledRunId(storage: KeyValueStorage | null, runId: string): void {
+  write(storage, SETTLED_KEY, runId);
+}
+
+/** 送れなかった記録（オフラインなど）。次に開いたときやオンラインに戻ったときに送り直す */
+export interface PendingRun {
+  runId: string;
+  log: RunLog;
+}
+
+export function loadPending(storage: KeyValueStorage | null): PendingRun[] {
+  const v = read(storage, PENDING_KEY);
+  if (!Array.isArray(v)) return [];
+  return v.filter((p): p is PendingRun => typeof p?.runId === 'string' && Array.isArray(p?.log?.actions));
+}
+
+export function savePending(storage: KeyValueStorage | null, pending: readonly PendingRun[]): void {
+  write(storage, PENDING_KEY, pending.slice(-MAX_PENDING));
 }
 
 /** ルール設定（巡数・保留枠・ネクスト・赤牌・海底）。足りない項目は既定値で埋める */

@@ -127,6 +127,12 @@ export interface BaseRules {
 
 export const DEFAULT_BASE_RULES: BaseRules = { turns: 12, holdSlots: 3, next: 2, redFives: true, haitei: true };
 
+/** 既定のルールか（ランキングに載せられるのは既定のルールのランだけ。docs/SPEC.md §5.3） */
+export function isDefaultRules(r: BaseRules): boolean {
+  // 項目を足したときに比べ忘れないように、既定の値のすべての項目を比べる
+  return (Object.keys(DEFAULT_BASE_RULES) as (keyof BaseRules)[]).every((k) => r[k] === DEFAULT_BASE_RULES[k]);
+}
+
 /** 1 局のルール。基本ルールに持ち物とボスを重ねたもの */
 export interface Modifiers {
   turns: number;

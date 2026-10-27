@@ -1,12 +1,14 @@
 <script setup lang="ts">
 /** 場の結果（docs/SPEC.md §2.3）。突破（祝儀の内訳）・ラン終了・全場クリア。局ごとの記録を並べる */
 import { computed } from 'vue';
+import { useAccountStore } from '@/stores/account';
 import { useGameStore } from '@/stores/game';
-import { WIND_NAMES, roundLabel } from '@/lib/labels';
+import { WIND_NAMES, roundLabel, summaryText } from '@/lib/labels';
 import SheetLayer from '../SheetLayer.vue';
 
-const emit = defineEmits<{ close: [] }>();
+const emit = defineEmits<{ close: []; openRanking: [] }>();
 const store = useGameStore();
+const account = useAccountStore();
 const run = computed(() => store.run);
 const wind = computed(() => WIND_NAMES[run.value.wave]);
 const round = computed(() => run.value.round);
@@ -15,6 +17,29 @@ const title = computed(() =>
 );
 // 突破したとき（全場クリアを含む）の祝儀の内訳。ラン終了では出さない
 const bonus = computed(() => (run.value.phase === 'over' ? null : run.value.lastWaveBonus));
+
+/** ランが終わったときの、ランキングへの記録の様子 */
+const submissionText = computed(() => {
+  const s = account.submission;
+  if (!s || run.value.phase === 'shop') return '';
+  switch (s.status) {
+    case 'local':
+      return 'このランは端末の中だけのランなので、ランキングには載りません（サーバーにつながらなかったか、ルールを変えています）。';
+    case 'sending':
+      return '記録を送っています…';
+    case 'recorded':
+      return s.result.best
+        ? `今週の最高記録として記録しました（${summaryText(s.result)}）。`
+        : `記録しました（${summaryText(s.result)}）。今週の最高記録は更新していません。`;
+    case 'queued':
+      return '記録を送れませんでした。次に開いたときに送り直します。';
+    case 'rejected':
+      // あとから新しいランを始めると、前のランは消える（not_found）か記録できない（superseded）
+      return s.code === 'superseded' || s.code === 'not_found'
+        ? 'このランは記録できません（あとから新しいランを始めたため）。'
+        : '記録を受け付けてもらえませんでした。';
+  }
+});
 </script>
 
 <template>
@@ -35,7 +60,11 @@ const bonus = computed(() => (run.value.phase === 'over' ? null : run.value.last
       <span>利子（5ごとに1、最大5）</span><span>+{{ bonus.interest }}</span>
       <span>目標超過</span><span>+{{ bonus.over }}</span>
     </div>
+    <p v-if="submissionText" class="note" role="status">{{ submissionText }}</p>
     <button v-if="run.phase === 'shop'" class="btn win" type="button" @click="emit('close')">ショップへ</button>
-    <button v-else class="btn win" type="button" @click="store.startRun()">新しいラン</button>
+    <div v-else class="actions">
+      <button class="btn" type="button" @click="emit('openRanking')">ランキング</button>
+      <button class="btn win" type="button" @click="store.startRun()">新しいラン</button>
+    </div>
   </SheetLayer>
 </template>

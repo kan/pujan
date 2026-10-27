@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { ENGINE_VERSION, apply, createGame, isFinished, newLog, replay, type GameAction, type GameState, type RunLog } from '../src/game.js';
-import { canModify } from '../src/run.js';
+import { canModify, runSummary } from '../src/run.js';
 import { botAction } from '../src/sim.js';
 import { KIND_COUNT } from '../src/tiles.js';
 
@@ -49,6 +49,18 @@ describe('操作ログと再生', () => {
       expect(isFinished(final)).toBe(true);
       expect(replay(log)).toEqual(final);
     }
+  });
+
+  it('終わったランの成績（突破した場の数と合計点）', () => {
+    for (const seed of [1, 2, 3]) {
+      const { run } = playLogged(seed).final;
+      const s = runSummary(run);
+      // 突破できなかった最後の場も合計に入る
+      expect(run.waveScores).toHaveLength(run.phase === 'cleared' ? 4 : s.wavesCleared + 1);
+      expect(s.totalScore).toBe(run.waveScores.reduce((a, b) => a + b, 0));
+      expect(s.wavesCleared).toBe(run.phase === 'cleared' ? 4 : run.wave);
+    }
+    expect(() => runSummary(createGame(1).run)).toThrow(/not finished/);
   });
 
   it('JSON にしても同じに再生できる', () => {
