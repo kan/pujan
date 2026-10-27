@@ -59,6 +59,19 @@ h1 {
   margin: 0;
   letter-spacing: 0.06em;
 }
+/* β 公開の印（docs/SPEC.md フェーズ 4.5） */
+h1 .beta {
+  margin-left: 4px;
+  padding: 0 5px;
+  border: 1px solid var(--gold);
+  border-radius: 4px;
+  color: var(--gold);
+  font-family: var(--f-body);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0;
+  vertical-align: 3px;
+}
 .spacer {
   flex: 1;
 }

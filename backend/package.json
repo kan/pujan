@@ -11,6 +11,7 @@
     "db:migrate:dev": "wrangler d1 migrations apply DB --env dev --remote",
     "db:migrate:prod": "wrangler d1 migrations apply DB --env production --remote",
     "test": "vitest run --passWithNoTests",
+    "stats": "tsc -p ../engine && node scripts/stats.mjs",
     "typecheck": "wrangler types --check --strict-vars=false && tsc --noEmit",
     "cf-typegen": "wrangler types --strict-vars=false"
   },

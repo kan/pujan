@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<!--
+  OGP 画像（public/og.png、1200×630）の元。開発サーバーで /og/og-image.html を開き、1200×630 で撮る
+  （docs/SPEC.md フェーズ 4.5）。ビルドには入らない。
+  牌の絵は public/tiles、雀士の絵は public/characters を使う。書き換えたら og.png も撮り直す。
+-->
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Shippori+Mincho+B1:wght@800&family=Zen+Kaku+Gothic+New:wght@700&display=block" />
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body { width: 1200px; height: 630px; overflow: hidden; }
+    body {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 34px;
+      background: radial-gradient(120% 90% at 50% 30%, #245442 0%, #1e4637 45%, #142f25 100%);
+      color: #e8efe8;
+      font-family: 'Zen Kaku Gothic New', sans-serif;
+    }
+    h1 {
+      font-family: 'Shippori Mincho B1', serif;
+      font-weight: 800;
+      font-size: 120px;
+      letter-spacing: 0.08em;
+      line-height: 1;
+      position: relative;
+    }
+    h1 .beta {
+      position: absolute;
+      top: -6px;
+      right: -86px;
+      padding: 2px 12px;
+      border: 3px solid #d8aa45;
+      border-radius: 10px;
+      color: #d8aa45;
+      font-family: 'Zen Kaku Gothic New', sans-serif;
+      font-size: 34px;
+      letter-spacing: 0;
+    }
+    .sub { font-size: 38px; color: #d8aa45; letter-spacing: 0.06em; }
+    .hand { display: flex; gap: 10px; align-items: flex-end; }
+    .tile {
+      width: 92px;
+      height: 124px;
+      padding: 8px;
+      background: #f4eedb;
+      border-radius: 10px;
+      box-shadow: 0 8px 0 #3c7d63, 0 12px 18px rgba(0, 0, 0, 0.35);
+    }
+    .tile img { width: 100%; height: 100%; object-fit: contain; }
+    .gap { width: 22px; }
+    .animals { display: flex; gap: 18px; }
+    .animals img { width: 76px; height: 76px; }
+  </style>
+</head>
+<body>
+  <h1>プチ麻雀<span class="beta">β</span></h1>
+  <p class="sub">手牌5枚の麻雀ローグライト</p>
+  <div class="hand">
+    <div class="tile"><img src="/tiles/Ton.svg" alt="" /></div>
+    <div class="tile"><img src="/tiles/Ton.svg" alt="" /></div>
+    <span class="gap"></span>
+    <div class="tile"><img src="/tiles/Man3.svg" alt="" /></div>
+    <div class="tile"><img src="/tiles/Man4.svg" alt="" /></div>
+    <div class="tile"><img src="/tiles/Man5-Dora.svg" alt="" /></div>
+  </div>
+  <div class="animals">
+    <img src="/characters/standard.svg" alt="" />
+    <img src="/characters/speed.svg" alt="" />
+    <img src="/characters/menzen.svg" alt="" />
+    <img src="/characters/oya.svg" alt="" />
+    <img src="/characters/yakuman.svg" alt="" />
+  </div>
+</body>
+</html>

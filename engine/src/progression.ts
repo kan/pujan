@@ -17,6 +17,8 @@ export const BASE_WAVE_TARGETS: readonly number[] = [1000, 2000, 4000, 8000];
 const BASE_START_MONEY = 4;
 /** ショップの品の数（段位の縛りがないとき） */
 const BASE_SHOP_SIZE = 3;
+/** 場を突破したときの祝儀（段位の縛りがないとき） */
+const BASE_CLEAR_BONUS = 3;
 
 /**
  * 役満で和了ったときに、和了った役の一覧（yakuWon）へ役の名前と一緒に入れる印。
@@ -62,7 +64,7 @@ export interface CharacterDef {
   base: Partial<BaseRules>;
   charms: CharmId[];
   equipment: EquipId[];
-  /** 始めの祝儀（段位で減る前） */
+  /** 始めの祝儀 */
   money: number;
   /** 解禁の条件（画面に出す） */
   unlockText: string;
@@ -132,6 +134,10 @@ const characterOf = (id: string): CharacterDef | undefined => CHARACTERS.find((c
 /** 雀士の名前（知らない ID はそのまま） */
 export const characterName = (id: string): string => characterOf(id)?.name ?? id;
 
+/** 雀士と段位（「うさぎ・二段」）。画面・集計・感想の一覧で同じ書き方にする */
+export const startLabel = (s: { character: string; dan: number }): string =>
+  `${characterName(s.character)}・${danName(s.dan)}`;
+
 /** 雀士が選べるか（解禁済みか） */
 export const characterUnlocked = (p: Progress, id: string): boolean => !!characterOf(id)?.unlocked(p);
 
@@ -145,18 +151,19 @@ export interface DanDef {
   description: string;
   /*
    * 縛りの中身。ある段位のランには、その段位までのすべての縛りが重なる。
-   * targetTimes と shopSize は上の段位の値で置き換え、moneyDelta と turnsDelta は足す
+   * targetTimes と shopSize は上の段位の値で置き換え、turnsDelta と clearBonusDelta は足す
    */
   targetTimes?: number;
-  moneyDelta?: number;
   turnsDelta?: number;
+  /** 場を突破したときの祝儀（clear）の増減 */
+  clearBonusDelta?: number;
   shopSize?: number;
 }
 
 export const DANS: readonly DanDef[] = [
   { level: 0, name: '初段', description: '縛りなし' },
   { level: 1, name: '二段', description: '場の目標点が1.5倍', targetTimes: 1.5 },
-  { level: 2, name: '三段', description: '始めの祝儀が2少ない', moneyDelta: -2 },
+  { level: 2, name: '三段', description: '場を突破したときの祝儀が1少ない', clearBonusDelta: -1 },
   { level: 3, name: '四段', description: '1局が11巡', turnsDelta: -1 },
   { level: 4, name: '五段', description: '場の目標点が2倍（二段の1.5倍の代わり）', targetTimes: 2 },
   { level: 5, name: '雀聖', description: 'ショップの品が2つ', shopSize: 2 },
@@ -223,6 +230,8 @@ export interface RunRules {
   base: BaseRules;
   targets: number[];
   startMoney: number;
+  /** 場を突破したときの祝儀（利子と目標超過の分を除く） */
+  clearBonus: number;
   shopSize: number;
   charms: CharmId[];
   equipment: EquipId[];
@@ -232,19 +241,20 @@ export function runRulesFor(start: RunChoice): RunRules {
   const c = characterOf(start.character);
   if (!c) throw new Error(`unknown character: ${start.character}`);
   let targetTimes = 1;
-  let money = c.money;
   let turns = DEFAULT_BASE_RULES.turns;
+  let clearBonus = BASE_CLEAR_BONUS;
   let shopSize = BASE_SHOP_SIZE;
   for (const d of DANS.slice(0, start.dan + 1)) {
     targetTimes = d.targetTimes ?? targetTimes;
-    money += d.moneyDelta ?? 0;
     turns += d.turnsDelta ?? 0;
+    clearBonus += d.clearBonusDelta ?? 0;
     shopSize = d.shopSize ?? shopSize;
   }
   return {
     base: { ...DEFAULT_BASE_RULES, ...c.base, turns },
     targets: BASE_WAVE_TARGETS.map((t) => t * targetTimes),
-    startMoney: Math.max(0, money),
+    startMoney: c.money,
+    clearBonus: Math.max(0, clearBonus),
     shopSize,
     charms: [...c.charms],
     equipment: [...c.equipment],

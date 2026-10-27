@@ -1,11 +1,12 @@
 /** 退会（kan/game docs/ID_DESIGN.md「退会」） */
 
 /** ID の記録を持つ表と、ID を入れている列 */
-const ACCOUNT_TABLES = [
+export const ACCOUNT_TABLES = [
   ['runs', 'account_id'],
   ['weekly_best', 'account_id'],
   ['profiles', 'account_id'],
   ['progress', 'account_id'],
+  ['feedback', 'account_id'],
 ] as const;
 
 /**

@@ -9,7 +9,7 @@
  */
 import { apply, createGame, isFinished } from './game.js';
 import { evaluateFive, type HandRules } from './hand.js';
-import { DEFAULT_BASE_RULES, modifiersFor, type BaseRules, type CharmId, type EquipId } from './items.js';
+import { DEFAULT_BASE_RULES, MAX_CHARMS, modifiersFor, type BaseRules, type CharmId, type EquipId } from './items.js';
 import {
   canRiichi,
   defaultComposition,
@@ -21,8 +21,9 @@ import {
   type KyokuState,
   type Zone,
 } from './kyoku.js';
+import type { RunStart } from './progression.js';
 import { createRng, mix32, nextInt } from './rng.js';
-import { WAVE_COUNT } from './run.js';
+import { WAVE_COUNT, type RunState } from './run.js';
 import { DRAGONS, EAST, KIND_COUNT, NINES, ONES, SOUTH, WINDS, suit, type Kind } from './tiles.js';
 
 /* ---------- 目標の形 ---------- */
@@ -319,6 +320,10 @@ export interface RunSimOptions {
   equipment?: EquipId[];
   /** 聴牌したらリーチする（既定は true） */
   riichi?: boolean;
+  /** 始めの条件（雀士・段位・解禁済みの役。既定は標準の雀士・初段・解禁なし） */
+  start?: RunStart;
+  /** ショップで買えるお守りと設備を買う（既定は何も買わない） */
+  buy?: boolean;
 }
 
 export interface RunSimResult {
@@ -332,7 +337,20 @@ export interface RunSimResult {
 }
 
 /**
- * AI にランを遊ばせる。ショップでは何も買わず、持たせたアイテムの効き目だけを見る。
+ * ショップで買う品の番号（買わないなら -1）。祝儀で買える、まだ売れていないお守りか設備を、並びの順に 1 つ。
+ * 消耗品・牌の改造・役の巻物は使い方に判断が要るので買わない（遊ぶ人より弱い目安になる）
+ */
+function shopPick(run: RunState): number {
+  return (run.shop ?? []).findIndex(
+    (o) =>
+      !o.sold &&
+      o.price <= run.money &&
+      ((o.kind === 'charm' && run.charms.length < MAX_CHARMS) || o.kind === 'equip'),
+  );
+}
+
+/**
+ * AI にランを遊ばせる。既定ではショップで何も買わず、持たせたアイテムの効き目だけを見る（buy で買わせる）。
  * 和了れる手ができたらすぐ和了り、親の和了では必ず連荘する。
  */
 export function simulateRuns(opts: RunSimOptions): RunSimResult {
@@ -344,12 +362,13 @@ export function simulateRuns(opts: RunSimOptions): RunSimResult {
     let seed: number;
     [rng, seed] = nextInt(rng, 0x7fffffff);
     // 画面やサーバーの再生と同じ apply() で進める
-    let g = createGame(seed, { loadout: { charms: opts.charms ?? [], equipment: opts.equipment ?? [] } });
+    let g = createGame(seed, { start: opts.start, loadout: { charms: opts.charms ?? [], equipment: opts.equipment ?? [] } });
     for (let actions = 0; !isFinished(g); actions++) {
       // 親の和了が続くなどで終わらないランを打ち切る（1 ランはふつう数百手）
       if (actions > 100000) throw new Error(`run ${i} did not finish`);
       if (!g.kyoku) {
-        g = apply(g, { type: 'leave' });
+        const pick = opts.buy ? shopPick(g.run) : -1;
+        g = apply(g, pick >= 0 ? { type: 'buy', index: pick } : { type: 'leave' });
       } else if (!g.kyoku.result) {
         g = apply(g, botAction(g.kyoku, { target: '和了形', riichi: opts.riichi ?? true }));
       } else {

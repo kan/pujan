@@ -10,8 +10,14 @@
 //     --runs N    アイテムごとのラン数（既定 100）  --seed N  シード（既定 1）
 //     --items a,b アイテムの id（既定 all = お守りと設備をすべて）
 //     --no-riichi 聴牌してもリーチしない
+//   starts [オプション]        AI にランを遊ばせ、雀士と段位ごとに進めた場を比べる（バランスの確認。SPEC フェーズ 4.5）
+//     --runs N    組み合わせごとのラン数（既定 100）  --seed N  シード（既定 1）
+//     --characters a,b  雀士の id（既定 all）        --dans 0,1  段位（既定 all）
+//     --unlocked all|none  解禁済みの役（既定 all = 巻物とお守りがすべて並ぶ）
+//     --no-buy    ショップで何も買わない（既定はお守りと設備を買う）  --no-riichi  リーチしない
 import { parseArgs } from 'node:util';
-import { CHARMS, EQUIPMENT } from '../dist/items.js';
+import { CHARMS, EQUIPMENT, SCROLL_YAKU } from '../dist/items.js';
+import { CHARACTERS, DANS } from '../dist/progression.js';
 import { TARGET_NAMES, dealTable, simulateRuns, simulateTarget } from '../dist/sim.js';
 
 const { positionals, values } = parseArgs({
@@ -26,6 +32,10 @@ const { positionals, values } = parseArgs({
     target: { type: 'string' },
     items: { type: 'string', default: 'all' },
     'no-riichi': { type: 'boolean', default: false },
+    characters: { type: 'string', default: 'all' },
+    dans: { type: 'string', default: 'all' },
+    unlocked: { type: 'string', default: 'all' },
+    'no-buy': { type: 'boolean', default: false },
   },
 });
 
@@ -86,7 +96,31 @@ function runs() {
   }
 }
 
-const commands = { deal, target, runs };
+function starts() {
+  const characters = values.characters === 'all' ? CHARACTERS.map((c) => c.id) : values.characters.split(',');
+  const dans = values.dans === 'all' ? DANS.map((d) => d.level) : values.dans.split(',').map(Number);
+  // 解禁済みの役: all は巻物・お守りがすべて並ぶ（遊び込んだ人）、none は何も並ばない（始めたばかりの人）
+  const unlockedYaku = values.unlocked === 'all' ? [...SCROLL_YAKU] : [];
+  const opts = { runs: int('runs', 1), seed: int('seed'), riichi: !values['no-riichi'], buy: !values['no-buy'] };
+  console.log(
+    `雀士と段位ごとに ${opts.runs} ラン（${opts.buy ? 'ショップでお守りと設備を買う' : 'ショップでは何も買わない'}、解禁 ${values.unlocked}）`,
+  );
+  console.log('雀士\t段位\t突破した場の平均\t東/南/西/北で終了/全場クリア\t全場クリア率\t局の和了率');
+  for (const character of characters) {
+    const name = CHARACTERS.find((c) => c.id === character)?.name;
+    if (!name) throw new Error(`雀士 ${character} がない（${CHARACTERS.map((c) => c.id).join(',')}）`);
+    for (const dan of dans) {
+      if (!DANS[dan]) throw new Error(`段位 ${dan} がない（0〜${DANS.length - 1}）`);
+      progress(`${name}・${DANS[dan].name} …`);
+      const r = simulateRuns({ ...opts, start: { character, dan, unlockedYaku } });
+      progress('');
+      const cleared = r.reached[r.reached.length - 1] / r.runs;
+      console.log(`${name}\t${DANS[dan].name}\t${r.meanCleared.toFixed(2)}\t${r.reached.join('/')}\t${pct(cleared)}\t${pct(r.winRate)}`);
+    }
+  }
+}
+
+const commands = { deal, target, runs, starts };
 const command = commands[positionals[0]];
 if (!command) {
   console.error(`使い方: npm run sim -w engine -- <${Object.keys(commands).join('|')}> [オプション]（オプションは scripts/sim.mjs の先頭を参照）`);

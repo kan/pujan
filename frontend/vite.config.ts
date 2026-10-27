@@ -2,8 +2,22 @@ import { defineConfig } from 'vite';
 import vue from '@vitejs/plugin-vue';
 import { VitePWA } from 'vite-plugin-pwa';
 import path from 'path';
+import { execFileSync } from 'node:child_process';
+import pkg from './package.json';
+
+/** 画面の版（「0.0.1+3907fc8」）。git がない場所でビルドしたときは版だけ */
+function appVersion(): string {
+  try {
+    return `${pkg.version}+${execFileSync('git', ['rev-parse', '--short', 'HEAD'], { encoding: 'utf8' }).trim()}`;
+  } catch {
+    return pkg.version;
+  }
+}
 
 export default defineConfig({
+  define: {
+    __APP_VERSION__: JSON.stringify(appVersion()),
+  },
   plugins: [
     vue(),
     VitePWA({
@@ -30,7 +44,8 @@ export default defineConfig({
       workbox: {
         globPatterns: ['**/*.{js,css,html,svg,png,woff2,json}'],
         // 大きいアイコンは追加のときにシステムが取りに来るので、オフライン用には持たない
-        globIgnores: ['pwa-512.png', 'pwa-maskable-512.png', 'apple-touch-icon.png'],
+        // OGP 画像（og.png）は共有先のサービスが取りに来るもので、画面では使わない
+        globIgnores: ['pwa-512.png', 'pwa-maskable-512.png', 'apple-touch-icon.png', 'og.png'],
         // API は Worker が答える。ユーザーごとに内容が変わるのでキャッシュしない
         navigateFallbackDenylist: [/^\/api\//],
         // 書体（Google Fonts）は一度読んだら手元に置き、オフラインでも同じ書体で描く。

@@ -15,6 +15,7 @@ import TutorialView from '@/components/TutorialView.vue';
 import SheetLayer from '@/components/SheetLayer.vue';
 import AboutSheet from '@/components/sheets/AboutSheet.vue';
 import DrawSheet from '@/components/sheets/DrawSheet.vue';
+import FeedbackSheet from '@/components/sheets/FeedbackSheet.vue';
 import HelpSheet from '@/components/sheets/HelpSheet.vue';
 import IntroSheet from '@/components/sheets/IntroSheet.vue';
 import InventorySheet from '@/components/sheets/InventorySheet.vue';
@@ -31,7 +32,7 @@ void store.init();
 // オフラインの間に送れなかった記録を、つながったら送り直す
 window.addEventListener('online', () => void account.flushPending());
 
-type Panel = 'menu' | 'help' | 'inventory' | 'ranking' | 'about' | 'start';
+type Panel = 'menu' | 'help' | 'inventory' | 'ranking' | 'about' | 'start' | 'feedback';
 const panel = ref<Panel | null>(null);
 
 /** 役と遊び方を開くタブ（ヘッダーの「役」は役のタブ、メニューからは遊び方のタブ） */
@@ -98,12 +99,14 @@ const sheet = computed(() => {
   <RankingSheet v-else-if="panel === 'ranking'" @close="panel = null" />
   <InventorySheet v-else-if="panel === 'inventory'" @close="panel = null" />
   <AboutSheet v-else-if="panel === 'about'" @close="panel = null" />
+  <FeedbackSheet v-else-if="panel === 'feedback'" @close="panel = null" />
   <WinSheet v-else-if="sheet === 'win'" />
   <DrawSheet v-else-if="sheet === 'draw'" />
   <WaveSheet
     v-else-if="sheet === 'wave'"
     @close="store.dismiss()"
     @open-ranking="panel = 'ranking'"
+    @open-feedback="panel = 'feedback'"
     @new-run="panel = 'start'"
   />
   <ShopSheet v-else-if="sheet === 'shop'" />

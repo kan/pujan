@@ -3,20 +3,21 @@
  *
  * ランのシードはサーバーが渡す（良い山を手元で探してから遊ぶ不正を防ぐ）。進めていられるランは 1 つの ID につき 1 つで、
  * 新しいランを始めると前のランは記録できなくなる。終わったら操作ログを送ってもらい、同じ engine で再生して成績を出す。
+ * 操作ログはプレイの集計のために残す（docs/SPEC.md フェーズ 4.5。backend/scripts/stats.mjs）。
  */
 import {
   ENGINE_VERSION,
-  isFinished,
   makeStart,
   progressAfter,
   randomSeed,
-  replay,
+  replayWithStats,
   runSummary,
   sameStart,
   weekOf,
   type Progress,
   type RunLog,
   type RunStart,
+  type RunStats,
   type RunSummary,
 } from '@pujan/engine';
 import { loadProgress, progressOfRow, upsertProgress, type ProgressRow } from './progress';
@@ -24,6 +25,8 @@ import { betterThan } from './ranking';
 
 /** 受け付ける操作の数の上限（ふつうのランは数百手。再生にかかる時間を抑える）。API の本文の検査で使う */
 export const MAX_ACTIONS = 5000;
+/** 1 つの ID について残しておく、終わっていないランの数（進めているランを含む） */
+export const UNFINISHED_KEPT = 20;
 
 export interface StartedRun {
   id: string;
@@ -47,11 +50,17 @@ export async function startRun(
   if (!start) return null;
   const run = { id: crypto.randomUUID(), seed: randomSeed(), engineVersion: ENGINE_VERSION, start };
   await db.batch([
-    // 終わっていない前のランは、もう記録できないので消す（1 つの ID の行が増え続けないように）
-    db.prepare('DELETE FROM runs WHERE account_id = ? AND finished_at IS NULL').bind(accountId),
     db
       .prepare('INSERT INTO runs (id, account_id, seed, engine_version, start, started_at) VALUES (?, ?, ?, ?, ?, ?)')
       .bind(run.id, accountId, run.seed, run.engineVersion, JSON.stringify(start), now),
+    // 終わっていない前のランは、始めて終わらなかったランを数えるために残す（記録はもうできない。SPEC フェーズ 4.5）。
+    // ラン開始を繰り返して行が増え続けないように、1 つの ID につき新しい UNFINISHED_KEPT 件までにする
+    db
+      .prepare(
+        `DELETE FROM runs WHERE account_id = ? AND finished_at IS NULL AND id NOT IN (
+           SELECT id FROM runs WHERE account_id = ? AND finished_at IS NULL ORDER BY started_at DESC, id DESC LIMIT ?)`,
+      )
+      .bind(accountId, accountId, UNFINISHED_KEPT),
   ]);
   return run;
 }
@@ -59,9 +68,9 @@ export async function startRun(
 export type FinishResult =
   /** duplicate: 同じランの記録の再送（成績は最初のもの）。progress は記録したあとの解禁の状態 */
   | { status: 'recorded'; summary: RunSummary; week: string; best: boolean; duplicate: boolean; progress: Progress }
-  /** ランがない（ほかの ID のラン、または新しいランを始めたので消えた前のラン） */
+  /** ランがない（ほかの ID のラン、または退会などで消えたラン） */
   | { status: 'not_found' }
-  /** その ID のいちばん新しいランではない（新しいランを始めたあと。前のランは startRun が消すので、ふつうは not_found になる） */
+  /** その ID のいちばん新しいランではない（あとから新しいランを始めた。前のランの行は残るが記録はできない） */
   | { status: 'superseded' }
   /** ランを始めたときと engine の版が違う */
   | { status: 'version_mismatch' }
@@ -117,11 +126,14 @@ export async function finishRun(
 
   let summary: RunSummary;
   let progress: Progress;
+  let stats: RunStats;
   try {
-    const game = replay(log);
-    if (!isFinished(game)) return { status: 'invalid', reason: 'not_finished' };
-    summary = runSummary(game.run);
-    progress = progressAfter(before, game.run);
+    // 1 回の再生で、成績・解禁と、プレイの集計に使う数をまとめて出す
+    const replayed = replayWithStats(log);
+    if (!replayed.stats) return { status: 'invalid', reason: 'not_finished' };
+    summary = runSummary(replayed.game.run);
+    progress = progressAfter(before, replayed.game.run);
+    stats = replayed.stats;
   } catch (e) {
     return { status: 'invalid', reason: `replay: ${(e as Error).message}` };
   }
@@ -132,8 +144,12 @@ export async function finishRun(
   const [, best] = await db.batch([
     // finished_at IS NULL: 同時に届いた 2 回目の送信は成績を書き換えない
     db
-      .prepare('UPDATE runs SET finished_at = ?, waves_cleared = ?, total_score = ? WHERE id = ? AND finished_at IS NULL')
-      .bind(now, summary.wavesCleared, summary.totalScore, runId),
+      .prepare(
+        `UPDATE runs SET finished_at = ?, waves_cleared = ?, total_score = ?, log = ?, stats = ?
+         WHERE id = ? AND finished_at IS NULL`,
+      )
+      // 操作ログと数えた結果はプレイの集計に使う（SPEC フェーズ 4.5）
+      .bind(now, summary.wavesCleared, summary.totalScore, JSON.stringify(log), JSON.stringify(stats), runId),
     // 週の最高記録より良ければ置き換える（ランキングと同じ規則）
     db
       .prepare(

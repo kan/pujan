@@ -7,8 +7,10 @@ import {
   KYOKU_PER_WAVE,
   MODS,
   WAVE_COUNT,
+  WIND_NAMES,
   characterName,
   danName,
+  startLabel,
   type NewUnlocks,
   type BossId,
   type CharmId,
@@ -21,16 +23,14 @@ import {
   type RunSummary,
 } from '@pujan/engine';
 
-export const WIND_NAMES = ['東', '南', '西', '北'] as const;
+// 場の名前と雀士・段位の書き方は engine にある（プレイの集計と同じ書き方にするため。品の種類の名前は OFFER_KIND_LABEL）
+export { WIND_NAMES, startLabel };
 
 /* engine の定義を id で引く */
 export const charmDef = (id: CharmId) => CHARMS.find((c) => c.id === id)!;
 export const equipDef = (id: EquipId) => EQUIPMENT.find((c) => c.id === id)!;
 export const consumableDef = (id: ConsumableId) => CONSUMABLES.find((c) => c.id === id)!;
 export const bossDef = (id: BossId) => BOSSES.find((c) => c.id === id)!;
-
-/** 雀士と段位（「うさぎ・二段」）。ランキングや場の案内に出す */
-export const startLabel = (s: { character: string; dan: number }) => `${characterName(s.character)}・${danName(s.dan)}`;
 
 /** 新しく解禁されたものを 1 行ずつ（「雀士「うさぎ」」「役の巻物「混一色」」） */
 export function unlockLines(u: NewUnlocks): string[] {
@@ -61,14 +61,6 @@ export function summaryText(s: RunSummary): string {
 export function settleLabel(run: RunState): string {
   return run.round.kyoku >= KYOKU_PER_WAVE - 1 ? '場の結果へ' : 'ショップへ';
 }
-
-export const OFFER_TYPE_LABEL: Record<Offer['kind'], string> = {
-  charm: 'お守り',
-  equip: '設備',
-  consumable: '消耗品',
-  mod: '牌の改造',
-  scroll: '役の巻物',
-};
 
 /** ショップの品物の名前と説明。役の巻物は買ったあとのレベルを名前に出す */
 export function offerText(o: Offer, yakuLevels: Readonly<Record<string, number>>): { name: string; description: string } {

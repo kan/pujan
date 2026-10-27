@@ -48,10 +48,30 @@ describe('雀士と段位のルール', () => {
   it('段位が上がると縛りが重なる', () => {
     const at = (dan: number) => runRulesFor({ ...DEFAULT_START, dan });
     expect(at(1).targets).toEqual([1500, 3000, 6000, 12000]);
-    expect(at(2).startMoney).toBe(2);
+    expect(at(1).clearBonus).toBe(3);
+    expect(at(2).clearBonus).toBe(2);
     expect(at(3).base.turns).toBe(DEFAULT_BASE_RULES.turns - 1);
     expect(at(4).targets).toEqual([2000, 4000, 8000, 16000]);
-    expect(at(5)).toMatchObject({ shopSize: 2, startMoney: 2, base: { turns: DEFAULT_BASE_RULES.turns - 1 } });
+    expect(at(5)).toMatchObject({ shopSize: 2, clearBonus: 2, startMoney: 4, base: { turns: DEFAULT_BASE_RULES.turns - 1 } });
+    // 始めの祝儀が 0 の雀士にも、三段の縛りは効く
+    expect(runRulesFor({ character: 'oya', dan: 2 }).clearBonus).toBe(2);
+  });
+
+  it('場を突破したときの祝儀は段位で減る', () => {
+    /** 東場を突破した直後の祝儀の内訳（突破できなかったら null） */
+    const firstBonus = (seed: number, dan: number) => {
+      let g = createGame(seed, { start: { ...DEFAULT_START, dan } });
+      while (!isFinished(g)) {
+        if (g.run.lastWaveBonus) return g.run.lastWaveBonus;
+        if (g.kyoku && !g.kyoku.result) g = apply(g, botAction(g.kyoku, { target: '和了形', riichi: true }));
+        else if (g.kyoku) g = apply(g, { type: 'settle', renchan: true });
+        else g = apply(g, { type: 'leave' });
+      }
+      return null;
+    };
+    const bonusAt = (dan: number) => [1, 2, 3, 4, 5].map((seed) => firstBonus(seed, dan)).find(Boolean);
+    expect(bonusAt(0)?.clear).toBe(3);
+    expect(bonusAt(2)?.clear).toBe(2);
   });
 
   it('雀士で始めの条件が変わる', () => {

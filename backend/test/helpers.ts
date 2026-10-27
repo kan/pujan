@@ -1,5 +1,6 @@
 import { env, createExecutionContext, waitOnExecutionContext } from 'cloudflare:test';
 import worker from '../src/index';
+import { ACCOUNT_TABLES } from '../src/lib/account';
 import type { Bindings } from '../src/types';
 import { createTestIdIssuer } from './kan-game/test-id-cookie';
 import { createFakeIdPlatform, type FakeIdPlatform } from './kan-game/fake-id-platform';
@@ -33,7 +34,7 @@ export async function call(path: string, init?: RequestInit, overrides: Partial<
 
 /** 各テストを空の表から始める（表の形は test/apply-migrations.ts が作る） */
 export async function resetDb() {
-  for (const table of ['runs', 'weekly_best', 'profiles', 'progress', 'deleted_accounts']) await env.DB.exec(`DELETE FROM ${table}`);
+  for (const table of [...ACCOUNT_TABLES.map(([t]) => t), 'deleted_accounts']) await env.DB.exec(`DELETE FROM ${table}`);
   idPlatform = createFakeIdPlatform();
 }
 

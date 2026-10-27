@@ -39,6 +39,8 @@ import { EAST, KIND_COUNT, type Kind } from './tiles.js';
 
 // 場の目標点・始めの祝儀・ショップの品の数は雀士と段位で変わる（progression.ts の runRulesFor）
 export const WAVE_COUNT = 4;
+/** 場の名前（0: 東〜3: 北） */
+export const WIND_NAMES = ['東', '南', '西', '北'] as const;
 export const KYOKU_PER_WAVE = 4;
 /** 流局時に聴牌していたときの祝儀 */
 export const TENPAI_MONEY = 1;
@@ -64,6 +66,22 @@ export interface Round {
   boss: BossId;
   target: number;
   log: RoundLogEntry[];
+}
+
+/** ショップの品の種類の名前（画面と集計で同じものを使う） */
+export const OFFER_KIND_LABEL = {
+  charm: 'お守り',
+  equip: '設備',
+  consumable: '消耗品',
+  mod: '牌の改造',
+  scroll: '役の巻物',
+} as const;
+
+/** ショップの品の名前（「お守り:色眼鏡」「役の巻物:役牌」）。プレイの集計のキーに使う */
+export function offerName(o: Offer): string {
+  const defs = { charm: CHARMS, equip: EQUIPMENT, consumable: CONSUMABLES, mod: MODS } as const;
+  const name = o.kind === 'scroll' ? o.yaku : ((defs[o.kind] as readonly { id: string; name: string }[]).find((d) => d.id === o.id)?.name ?? o.id);
+  return `${OFFER_KIND_LABEL[o.kind]}:${name}`;
 }
 
 export type Offer =
@@ -251,7 +269,8 @@ function endWave(ended: RunState): RunState {
   const run = { ...ended, waveScores: [...ended.waveScores, score] };
   if (score < target) return { ...run, phase: 'over', shop: null, afterShop: null };
   const bonus: WaveBonus = {
-    clear: 3,
+    // 突破の祝儀は段位で減る（progression.ts の runRulesFor）
+    clear: runRulesFor(run.start).clearBonus,
     interest: Math.min(5, Math.floor(run.money / 5)),
     over: Math.max(0, Math.min(3, Math.floor((score / target - 1) / 0.5))),
   };

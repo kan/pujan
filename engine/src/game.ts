@@ -25,7 +25,7 @@ import type { Kind } from './tiles.js';
  * エンジンの版。同じ操作ログから違う結果になる変更（役・点数・乱数の使い方・ショップなど）をしたら 1 つ上げる。
  * サーバーは記録の版と今の版が違うログを再生で検証できない（§5.3）。
  */
-export const ENGINE_VERSION = 2;
+export const ENGINE_VERSION = 3;
 
 /** プレイヤーの操作 */
 export type GameAction =
@@ -122,19 +122,25 @@ export function newLog(seed: number, start: RunStart = DEFAULT_START): RunLog {
 /**
  * 操作ログを再生して、最後の状態を返す。版が違うログ、始めの条件の形が違うログ、途中にできない操作があるログは
  * 例外を投げる。ランが終わる前で止まっているログ（途中のラン）も再生できる。
+ * onStep は操作を 1 つ適用するたびに、前後の状態と操作を受け取る（プレイの集計が使う。stats.ts）
  */
-export function replay(log: RunLog): GameState {
+export function replay(
+  log: RunLog,
+  onStep?: (before: GameState, action: GameAction, after: GameState) => void,
+): GameState {
   if (log.engineVersion !== ENGINE_VERSION) {
     throw new Error(`engine version mismatch: log ${log.engineVersion}, engine ${ENGINE_VERSION}`);
   }
   if (!isRunStart(log.start)) throw new Error('invalid run start');
   let g = createGame(log.seed, { start: log.start });
   log.actions.forEach((a, i) => {
+    const before = g;
     try {
       g = apply(g, a);
     } catch (e) {
       throw new Error(`action ${i} (${a.type}): ${(e as Error).message}`);
     }
+    onStep?.(before, a, g);
   });
   return g;
 }

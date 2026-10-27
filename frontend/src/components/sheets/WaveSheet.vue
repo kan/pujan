@@ -6,7 +6,7 @@ import { useGameStore } from '@/stores/game';
 import { WIND_NAMES, roundLabel, summaryText, unlockLines } from '@/lib/labels';
 import SheetLayer from '../SheetLayer.vue';
 
-const emit = defineEmits<{ close: []; openRanking: []; newRun: [] }>();
+const emit = defineEmits<{ close: []; openRanking: []; openFeedback: []; newRun: [] }>();
 const store = useGameStore();
 const account = useAccountStore();
 const run = computed(() => store.run);
@@ -74,6 +74,7 @@ const submissionText = computed(() => {
     <button v-if="run.phase === 'shop'" class="btn win" type="button" @click="emit('close')">ショップへ</button>
     <div v-else class="actions">
       <button class="btn" type="button" @click="emit('openRanking')">ランキング</button>
+      <button class="btn" type="button" @click="emit('openFeedback')">感想</button>
       <button class="btn win" type="button" @click="emit('newRun')">新しいラン</button>
     </div>
   </SheetLayer>

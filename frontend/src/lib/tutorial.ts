@@ -8,6 +8,7 @@ import {
   EAST,
   SOUTH,
   BASE_WAVE_TARGETS,
+  WIND_NAMES,
   CHARACTERS,
   CHUN,
   characterName,
@@ -125,7 +126,7 @@ export const PLAY_STEPS: readonly PlayStep[] = [
 
 /** 説明に出す数字（engine の既定のルールから。数字を変えたら説明も変わる） */
 const RULES = modifiersFor(DEFAULT_BASE_RULES, { charms: [], equipment: [] }, null);
-const targetsText = BASE_WAVE_TARGETS.map((t, i) => `${['東', '南', '西', '北'][i]}${t.toLocaleString('ja-JP')}`).join('・');
+const targetsText = BASE_WAVE_TARGETS.map((t, i) => `${WIND_NAMES[i]}${t.toLocaleString('ja-JP')}`).join('・');
 
 /** 和了ったあとに読んでもらう、ランの流れの説明 */
 export const GUIDE_PAGES: readonly { title: string; body: string[]; /** 「役と遊び方」の遊び方のタブにも出す */ inHelp?: boolean }[] = [

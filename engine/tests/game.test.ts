@@ -43,7 +43,8 @@ function playLogged(seed: number, maxActions = 5000): { log: RunLog; final: Game
 }
 
 describe('操作ログと再生', () => {
-  it('ログを再生すると同じ最後の状態になる', () => {
+  // 3 ランを遊んで再生するので、ほかのテストと並んで走ると 5 秒を超えることがある
+  it('ログを再生すると同じ最後の状態になる', { timeout: 20_000 }, () => {
     for (const seed of [1, 2, 3]) {
       const { log, final } = playLogged(seed);
       expect(isFinished(final)).toBe(true);

@@ -5,6 +5,7 @@
  * - /api/me・/api/profile: ランキングに出す名前と公開への同意
  * - /api/runs: ランの開始（サーバーがシードを渡す）と、終わったランの記録（操作ログを再生して確かめる）
  * - /api/rankings/weekly: 週ごとのランキング
+ * - /api/feedback: 遊んだ人の感想（β公開。docs/SPEC.md フェーズ 4.5）
  */
 import { Hono } from 'hono';
 import { bodyLimit } from 'hono/body-limit';
@@ -16,8 +17,9 @@ import { idPlatform } from './lib/id-auth';
 import { getProfileName, nameOutcome, registerProfile } from './lib/profile';
 import { finishRun, MAX_ACTIONS, startRun } from './lib/runs';
 import { loadProgress } from './lib/progress';
+import { saveFeedback } from './lib/feedback';
 import { weeklyRanking } from './lib/ranking';
-import { isWeek, weekOf } from '@pujan/engine';
+import { FEEDBACK_MAX_LENGTH, isWeek, weekOf, type FeedbackContext } from '@pujan/engine';
 
 export { GameService } from './game-service';
 
@@ -122,6 +124,33 @@ api.post('/runs/:id/finish', bodyLimit({ maxSize: 512 * 1024 }), async (c) => {
       console.warn(JSON.stringify({ event: 'invalid_run', reason: result.reason }));
       return c.json({ error: 'invalid_run' }, 422);
   }
+});
+
+/** 感想。添えるランの様子は画面が送る参考の値なので、形と長さだけ見る */
+// engine の FeedbackContext と項目がずれたら型検査で分かるように satisfies で結ぶ
+const feedbackContextSchema = z.object({
+  runId: z.string().max(64).nullable(),
+  character: z.string().max(32),
+  dan: z.number().int().min(0).max(99),
+  wave: z.number().int().min(0).max(99),
+  finished: z.boolean(),
+  score: z.number().int(),
+  engineVersion: z.number().int(),
+  appVersion: z.string().max(64),
+}) satisfies z.ZodType<FeedbackContext>;
+
+const feedbackSchema = z.object({
+  body: z.string().trim().min(1).max(FEEDBACK_MAX_LENGTH),
+  context: feedbackContextSchema.partial().default({}),
+});
+
+// POST /api/feedback — 感想を送る（docs/SPEC.md フェーズ 4.5）。送りすぎは 429
+api.post('/feedback', bodyLimit({ maxSize: 16 * 1024 }), async (c) => {
+  const body = feedbackSchema.safeParse(await c.req.json().catch(() => null));
+  if (!body.success) return c.json({ error: 'invalid_request' }, 400);
+  const saved = await saveFeedback(c.env.DB, c.get('accountId'), body.data.body, body.data.context);
+  if (!saved) return c.json({ error: 'too_many' }, 429);
+  return c.json({ ok: true }, 201);
 });
 
 // GET /api/rankings/weekly?week=YYYY-MM-DD — 週ごとのランキング（省略時は今週）

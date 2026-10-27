@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { env } from 'cloudflare:test';
 import {
+  analyzeRun,
   apply,
   createGame,
   DEFAULT_START,
@@ -16,6 +17,8 @@ import { botAction } from '../../engine/src/sim';
 import { call, get, idIssuer, newUser, ORIGIN, post, resetDb, type TestUser } from './helpers';
 import { createTestIdIssuer } from './kan-game/test-id-cookie';
 import { GameService } from '../src/game-service';
+import { ACCOUNT_TABLES } from '../src/lib/account';
+import { UNFINISHED_KEPT } from '../src/lib/runs';
 
 beforeEach(resetDb);
 
@@ -131,19 +134,44 @@ describe('ランの記録', () => {
     expect((await post(`/api/runs/${started.id}/finish`, user, { log })).status).toBe(200);
   });
 
-  it('新しいランを始めると、終わっていない前のランは消えて記録できない（終わったランは残る）', async () => {
+  it('新しいランを始めると、終わっていない前のランは記録できない（行は集計のために残る）', async () => {
     const user = await newUser();
-    const { started: done } = await playRun(user);
+    const { started: done, log } = await playRun(user);
     const first = (await (await post('/api/runs', user)).json()) as { id: string; seed: number };
     await post('/api/runs', user);
     const res = await post(`/api/runs/${first.id}/finish`, user, { log: playedLog(first.seed) });
-    expect(res.status).toBe(404);
-    const rows = await env.DB.prepare('SELECT id, finished_at IS NOT NULL AS finished FROM runs WHERE account_id = ?')
+    expect(res.status).toBe(409);
+    const rows = await env.DB.prepare('SELECT id, finished_at IS NOT NULL AS finished, log, stats FROM runs WHERE account_id = ?')
       .bind(user.id)
-      .all<{ id: string; finished: number }>();
-    // 終わったラン 1 つと、進めているラン 1 つ
-    expect(rows.results).toHaveLength(2);
-    expect(rows.results.find((r) => r.id === done.id)?.finished).toBe(1);
+      .all<{ id: string; finished: number; log: string | null; stats: string | null }>();
+    // 終わったラン 1 つ、捨てたラン 1 つ、進めているラン 1 つ
+    expect(rows.results).toHaveLength(3);
+    const finished = rows.results.find((r) => r.id === done.id)!;
+    expect(finished.finished).toBe(1);
+    // 終わったランは操作ログと数えた結果を残す（プレイの集計に使う）
+    expect(JSON.parse(finished.log!)).toEqual(log);
+    expect(JSON.parse(finished.stats!)).toEqual(analyzeRun(log));
+    expect(rows.results.filter((r) => !r.finished).every((r) => r.log === null && r.stats === null)).toBe(true);
+  });
+
+  it('終わっていないランは、1 つの ID につき新しい 20 件まで残す（終わったランは消さない）', async () => {
+    const user = await newUser();
+    const { started: done } = await playRun(user);
+    const started: string[] = [];
+    for (let i = 0; i < UNFINISHED_KEPT + 3; i++) {
+      // 始めた順が時刻で決まるように、少しずつずらす
+      const s = (await (await post('/api/runs', user)).json()) as Started;
+      await env.DB.prepare('UPDATE runs SET started_at = ? WHERE id = ?').bind(1_000_000 + i, s.id).run();
+      started.push(s.id);
+    }
+    // 最後の 1 回のぶんの削除を、ずらした時刻で走らせる
+    const last = (await (await post('/api/runs', user)).json()) as Started;
+    const rows = await env.DB.prepare('SELECT id FROM runs WHERE account_id = ? AND finished_at IS NULL').bind(user.id).all<{ id: string }>();
+    expect(rows.results).toHaveLength(UNFINISHED_KEPT);
+    expect(rows.results.map((r) => r.id)).toContain(last.id);
+    expect(rows.results.map((r) => r.id)).not.toContain(started[0]);
+    const kept = await env.DB.prepare('SELECT COUNT(*) AS n FROM runs WHERE id = ?').bind(done.id).first<{ n: number }>();
+    expect(kept?.n).toBe(1);
   });
 
   it('週はランを始めた時刻で決まる', async () => {
@@ -269,14 +297,57 @@ describe('週ごとのランキング', () => {
   });
 });
 
+describe('感想', () => {
+  const context = {
+    runId: null,
+    character: 'standard',
+    dan: 0,
+    wave: 1,
+    finished: false,
+    score: 1200,
+    engineVersion: 2,
+    appVersion: '0.0.1+abc',
+  };
+
+  it('本文とランの様子を残す', async () => {
+    const user = await newUser();
+    const res = await post('/api/feedback', user, { body: '  役満が出ない  ', context });
+    expect(res.status).toBe(201);
+    const row = await env.DB.prepare('SELECT * FROM feedback WHERE account_id = ?').bind(user.id).first<Record<string, unknown>>();
+    expect(row).toMatchObject({ body: '役満が出ない', character: 'standard', dan: 0, wave: 1, finished: 0, score: 1200, app_version: '0.0.1+abc' });
+    // ランの様子はなくてもよい
+    expect((await post('/api/feedback', user, { body: '楽しい' })).status).toBe(201);
+  });
+
+  it('空・長すぎる本文、形の違うランの様子は 400', async () => {
+    const user = await newUser();
+    for (const body of [{ body: '   ' }, { body: 'あ'.repeat(1001) }, { body: 'x', context: { dan: 'x' } }, {}]) {
+      expect((await post('/api/feedback', user, body)).status).toBe(400);
+    }
+    expect((await post('/api/feedback', user, { body: 'あ'.repeat(1000) })).status).toBe(201);
+  });
+
+  it('1 時間に 5 件まで（ID ごと）', async () => {
+    const user = await newUser();
+    for (let i = 0; i < 5; i++) expect((await post('/api/feedback', user, { body: `${i}` })).status).toBe(201);
+    expect((await post('/api/feedback', user, { body: '6' })).status).toBe(429);
+    // ほかの ID は数えない
+    expect((await post('/api/feedback', await newUser(), { body: '別の人' })).status).toBe(201);
+    // 1 時間より前のものは数えない
+    await env.DB.prepare('UPDATE feedback SET created_at = ? WHERE account_id = ?').bind(1, user.id).run();
+    expect((await post('/api/feedback', user, { body: '7' })).status).toBe(201);
+  });
+});
+
 describe('退会（GameService.deleteAccount）', () => {
   it('記録を消し、以後その ID の要求を断る。何度呼んでもよい', async () => {
     const user = await newUser({ name: '雀士A' });
     await playRun(user);
+    await post('/api/feedback', user, { body: '感想' });
     const service = new GameService({} as never, env as never);
     await service.deleteAccount(user.id);
     await service.deleteAccount(user.id);
-    for (const table of ['runs', 'weekly_best', 'profiles', 'progress']) {
+    for (const [table] of ACCOUNT_TABLES) {
       const left = await env.DB.prepare(`SELECT COUNT(*) AS n FROM ${table} WHERE account_id = ?`).bind(user.id).first<{ n: number }>();
       expect(left?.n).toBe(0);
     }

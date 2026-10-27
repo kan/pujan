@@ -18,7 +18,8 @@ import {
   type Kind,
 } from '@pujan/engine';
 import { useGameStore } from '@/stores/game';
-import { OFFER_TYPE_LABEL, charmDef, compositionText, equipDef, offerText } from '@/lib/labels';
+import { OFFER_KIND_LABEL } from '@pujan/engine';
+import { charmDef, compositionText, equipDef, offerText } from '@/lib/labels';
 import MjTile from '../MjTile.vue';
 import SheetLayer from '../SheetLayer.vue';
 
@@ -92,7 +93,7 @@ const equipNames = computed(() => run.value.equipment.map((id) => equipDef(id).n
     <div class="cards">
       <div v-for="(o, i) in offers" :key="i" class="card" :class="{ sold: o.sold }">
         <div class="ct">
-          <span class="ty">{{ OFFER_TYPE_LABEL[o.kind] }}</span><b>{{ o.name }}</b>
+          <span class="ty">{{ OFFER_KIND_LABEL[o.kind] }}</span><b>{{ o.name }}</b>
         </div>
         <p>{{ o.description }}</p>
         <!-- 枠がいっぱいのときは押せるようにしておき、押したら理由を案内する -->

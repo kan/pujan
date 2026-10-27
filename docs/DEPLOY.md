@@ -55,9 +55,22 @@ ID 基盤の変更は、このリポジトリの作業からは行わない（AG
 - 画面を開くと ID が発行され（`/api/id/session` が 200）、新しいランがサーバーのシードで始まる（`/api/runs` が 201）
 - ランを終えると記録され、ランキングの画面で名前を登録すると自分の記録が載る
 - 許可していないオリジンからの `POST /api/runs` が 403、Cookie なしが 401
-- kan/game の変更のあと、ポータル（`https://dev.kan-game.app`）でテスト用の ID を退会すると、その ID の `runs`・`weekly_best`・`profiles` が消える
+- 「感想を送る」から送った感想が `npm run stats -w backend -- feedback --env dev` に出て、終わったランが `npm run stats -w backend -- --env dev` の集計に入る
+- 共有したときの表示（OGP）: `https://pujan-dev.kan-game.app/og.png` が開く（`og:url`・`og:image` は本番の URL を指す）
+- kan/game の変更のあと、ポータル（`https://dev.kan-game.app`）でテスト用の ID を退会すると、その ID の `runs`・`weekly_best`・`profiles`・`progress`・`feedback` が消える
 
 本番も同じ手順で、`pujan-prod`・`env.production`・ルートの `npm run deploy` を使う。
+
+## 感想とプレイの集計を読む
+
+β公開の間（docs/SPEC.md フェーズ 4.5）は、遊んだ人の感想と、記録したランの操作ログを D1 に残す。読むのはリポジトリのスクリプトで、D1 には書き込まない。
+
+```bash
+npm run stats -w backend -- --env production            # プレイの集計（雀士・段位ごとのクリア率、負けた場、役、ショップの品）
+npm run stats -w backend -- feedback --env production   # 新しい順の感想（既定 30 件。--limit N）
+```
+
+`--env` は `local`（既定）・`dev`・`production`。集計はルールの版（engine の `ENGINE_VERSION`）ごとで、既定は今の版、`--version N` で前の版も見られる（記録したときに数えた結果を `runs.stats` に残している）。個人が分かる値は出さない。感想の一覧は ID の全体を出さず、同じ人の感想は ID の先頭 8 文字で見分ける。
 
 ## 2 回目以降のデプロイ
 

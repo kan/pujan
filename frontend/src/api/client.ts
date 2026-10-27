@@ -5,7 +5,7 @@
  * ID は起動時に POST /api/id/session でもらう（なければ発行、あれば延長）。
  * API が 410（退会した ID）を返したら、ID をもらい直してもう一度だけ送る。
  */
-import type { Progress, RunChoice, RunLog, RunStart, RunSummary } from '@pujan/engine';
+import type { FeedbackContext, Progress, RunChoice, RunLog, RunStart, RunSummary } from '@pujan/engine';
 
 export class ApiError extends Error {
   constructor(
@@ -118,6 +118,7 @@ export const api = {
   startRun: (choice: RunChoice) => post<StartedRun>('/api/runs', choice, AbortSignal.timeout(START_TIMEOUT_MS)),
   finishRun: (runId: string, log: RunLog) =>
     post<FinishedRun>(`/api/runs/${encodeURIComponent(runId)}/finish`, { log }, AbortSignal.timeout(FINISH_TIMEOUT_MS)),
+  sendFeedback: (body: string, context: FeedbackContext) => post<{ ok: true }>('/api/feedback', { body, context }),
   weeklyRanking: (week?: string) =>
     request<WeeklyRanking>(`/api/rankings/weekly${week ? `?week=${encodeURIComponent(week)}` : ''}`),
 };

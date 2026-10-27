@@ -76,9 +76,12 @@ npm test -w engine       # engine だけ
 npm run sim -w engine -- deal                 # 配牌 5 枚で形ができる確率
 npm run sim -w engine -- target --hold 0      # 目標の形を狙う AI の 12 巡の和了率
 npm run sim -w engine -- runs --runs 100      # アイテムごとに、ランでどの場まで進めたか
+npm run sim -w engine -- starts --runs 40     # 雀士と段位ごとに、ランでどの場まで進めたか
 ```
 
-オプションは `engine/scripts/sim.mjs` の先頭にある。`runs` は 1 アイテム 100 ランで数十秒かかる。
+オプションは `engine/scripts/sim.mjs` の先頭にある。`runs` は 1 アイテム 100 ランで数十秒、`starts` は 30 通り × 40 ランで 20 分ほどかかる。
+
+遊んだ人のプレイの集計と感想は `npm run stats -w backend`（`docs/DEPLOY.md`「感想とプレイの集計を読む」）。リモートの D1 を読むので、`--env dev`・`--env production` で実行するときも利用者の承認を得る。
 
 ### ローカル開発の起動
 

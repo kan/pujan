@@ -121,6 +121,7 @@ const items = computed(() => [
       <span>保留・ネクスト</span><span>{{ rules.base.holdSlots }}枠・{{ rules.base.next }}枚</span>
       <span>1局の巡数</span><span>{{ rules.base.turns }}巡</span>
       <span>始めの祝儀</span><span>{{ rules.startMoney }}</span>
+      <span>場を突破したときの祝儀</span><span>{{ rules.clearBonus }}＋利子など</span>
       <template v-if="items.length">
         <span>持ち物</span><span>{{ items.join('・') }}</span>
       </template>
