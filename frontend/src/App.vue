@@ -107,6 +107,7 @@ const sheet = computed(() => {
     @close="store.dismiss()"
     @open-ranking="panel = 'ranking'"
     @open-feedback="panel = 'feedback'"
+    @open-menu="panel = 'menu'"
     @new-run="panel = 'start'"
   />
   <ShopSheet v-else-if="sheet === 'shop'" />
