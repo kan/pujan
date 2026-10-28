@@ -670,19 +670,13 @@ span.tile {
 .tile.kin {
   background: linear-gradient(180deg, #fff3c4, #e9c867);
 }
-.tile.joker::after {
-  content: 'J';
-  position: absolute;
-  top: 2px;
-  right: 3px;
-  font-family: var(--f-body);
-  font-weight: 700;
-  font-size: calc(var(--w) * 0.2);
-  color: var(--gold-ink);
-  background: var(--gold);
-  border-radius: 3px;
-  padding: 0 2px;
-  line-height: 1.2;
+/* 万能牌の地（面の絵柄は MjTile.vue）。普通の牌と見分けられる色にする */
+.tile.joker {
+  background: linear-gradient(180deg, #f7ecff, #dcc3f2);
+}
+/* 金牌の万能牌は金の地を優先する（万能牌であることは面の星で分かる。金牌の祝儀が点数の画面に出るため） */
+.tile.joker.kin {
+  background: linear-gradient(180deg, #fff3c4, #e9c867);
 }
 /* 朱塗りで赤くなった、5 以外の牌（素材に赤版がない）。赤の 5 は素材の赤牌の絵を使う */
 .tile.akamark::before {
@@ -760,6 +754,12 @@ span.tile {
   gap: 4px;
   flex-wrap: wrap;
 }
+/* 和了れるときの、万能牌を当てはめた牌 */
+.callout .jk {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
 .settings {
   display: grid;
   grid-template-columns: auto 1fr;
@@ -821,24 +821,6 @@ span.tile {
 /* ボタンの上は手牌なので、指のマークは付けない（輪だけ。指が手牌を指して見えるため） */
 .btn.pulse::after {
   content: none;
-}
-/* 万能牌の「J」も ::after を使うので、万能牌は輪だけにして「J」の印を元の形に戻す */
-.tile.joker.pulse::after {
-  content: 'J';
-  top: 2px;
-  right: 3px;
-  left: auto;
-  bottom: auto;
-  transform: none;
-  animation: none;
-  font-family: var(--f-body);
-  font-weight: 700;
-  font-size: calc(var(--w) * 0.2);
-  color: var(--gold-ink);
-  background: var(--gold);
-  border-radius: 3px;
-  padding: 0 2px;
-  line-height: 1.2;
 }
 @keyframes pulse-ring {
   0% {

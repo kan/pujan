@@ -75,6 +75,26 @@ describe('bestWin', () => {
     expect(w.evaluation.yaku.map((y) => y.name)).toEqual(['プチ槓']);
   });
 
+  it('万能牌の id と、当てはめた種類を返す', () => {
+    // 一萬一萬・三筒四筒 に万能牌（中）。中は二筒か五筒になるしかない
+    const t = tiles([m(1), m(1), p(3), p(4), 33]);
+    const w = bestWin(t, ctx({ isJoker: (k) => k === 33 }))!;
+    expect(w.jokers).toHaveLength(1);
+    expect(w.jokers[0].id).toBe(4);
+    expect([p(2), p(5)]).toContain(w.jokers[0].kind);
+    expect(bestWin(t, ctx())).toBeNull();
+    expect(bestWin(tiles([m(1), m(1), p(3), p(4), p(5)]), ctx())!.jokers).toEqual([]);
+  });
+
+  it('万能牌が 2 枚でも、牌ごとに当てはめた種類を返す', () => {
+    const t = tiles([m(1), m(1), p(3), 33, 32]);
+    const w = bestWin(t, ctx({ isJoker: (k) => k === 33 || k === 32 }))!;
+    expect(w.jokers.map((j) => j.id)).toEqual([3, 4]);
+    // 当てはめた種類と万能牌でない牌を合わせると、和了形の種類（kinds）になる
+    const fixed = w.tileIds.filter((id) => id < 3).map((id) => t[id].kind);
+    expect([...fixed, ...w.jokers.map((j) => j.kind)].sort()).toEqual(w.kinds.slice().sort());
+  });
+
   it('ドラと赤はボーナスの翻、1翻縛りでは役に数えない', () => {
     const t = tiles([m(1), m(1), p(3), p(4), p(5)], [{}, {}, {}, {}, { red: true }]);
     const w = bestWin(t, ctx({ holdIds: new Set([0]), doraKinds: [m(1)] }))!;

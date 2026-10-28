@@ -38,6 +38,8 @@ export interface Win {
   tileIds: number[];
   /** 万能牌を当てはめたあとの種類 */
   kinds: Kind[];
+  /** 和了に使った万能牌の id と、当てはめた種類（画面で「何の牌として扱ったか」を示すため） */
+  jokers: { id: number; kind: Kind }[];
   points: number;
 }
 
@@ -110,7 +112,8 @@ function bonusEntries(sub: readonly Tile[], kinds: readonly Kind[], ctx: WinCont
 function forEachWin(
   tiles: readonly Tile[],
   ctx: WinContext,
-  visit: (ev: Evaluation, sub: readonly Tile[], kinds: readonly Kind[]) => boolean | void,
+  /** kinds は、万能牌でない牌の種類を sub の順に並べ、その後ろに jokerTiles の順で当てはめた種類を足したもの */
+  visit: (ev: Evaluation, sub: readonly Tile[], kinds: readonly Kind[], jokerTiles: readonly Tile[]) => boolean | void,
   must?: Tile,
 ): void {
   const all = must ? [...tiles, must] : tiles;
@@ -121,13 +124,14 @@ function forEachWin(
     for (const idx of combos) {
       const sub = idx.map((i) => all[i]);
       const fixed = sub.filter((t) => !ctx.isJoker(t.kind)).map((t) => t.kind);
-      const jokers = size - fixed.length;
+      const jokerTiles = sub.filter((t) => ctx.isJoker(t.kind));
+      const jokers = jokerTiles.length;
       const candidates = jokers ? jokerCandidates(fixed, jokers) : ALL_KINDS;
       let stop = false;
       const rec = (kinds: Kind[], left: number) => {
         if (!left) {
           const ev = size === 5 ? evaluateFive(kinds, ctx.rules) : evaluateSix(kinds, ctx.rules);
-          if (ev && !(ctx.shibari && ev.noYaku) && visit(ev, sub, kinds)) stop = true;
+          if (ev && !(ctx.shibari && ev.noYaku) && visit(ev, sub, kinds, jokerTiles)) stop = true;
           return;
         }
         for (const k of candidates) {
@@ -146,11 +150,13 @@ function forEachWin(
 
 export function bestWin(tiles: readonly Tile[], ctx: WinContext): Win | null {
   let best: Win | null = null;
-  forEachWin(tiles, ctx, (found, sub, kinds) => {
+  forEachWin(tiles, ctx, (found, sub, kinds, jokerTiles) => {
     const ev = ctx.holdIds ? addHan(found, bonusEntries(sub, kinds, ctx)) : found;
     const points = basePoints(ev, ctx.noLimit);
     if (!best || points > best.points) {
-      best = { evaluation: ev, tileIds: sub.map((t) => t.id), kinds: kinds.slice(), points };
+      const offset = kinds.length - jokerTiles.length;
+      const jokers = jokerTiles.map((t, j) => ({ id: t.id, kind: kinds[offset + j] }));
+      best = { evaluation: ev, tileIds: sub.map((t) => t.id), kinds: kinds.slice(), jokers, points };
     }
   });
   return best;

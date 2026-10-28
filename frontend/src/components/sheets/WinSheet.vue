@@ -14,10 +14,17 @@ const result = computed(() => {
   if (r?.type !== 'win') throw new Error('not a win');
   return r;
 });
+/** 和了に使った牌。万能牌は当てはめた後の種類にして（wild）、その種類の順に並べる */
 const tiles = computed(() => {
   const used = new Set(result.value.win.tileIds);
+  const jokerAs = new Map(result.value.win.jokers.map((j) => [j.id, j.kind]));
   return allTiles(k.value)
     .filter((t) => used.has(t.id))
+    .map((t) => {
+      const as = jokerAs.get(t.id);
+      // 赤と金は牌そのものに付く（赤の翻・金牌の祝儀に数える）ので、当てはめたあとも残す
+      return as === undefined ? { ...t, wild: false } : { ...t, kind: as, wild: true };
+    })
     .sort(byKind);
 });
 const dealer = computed(() => isDealerKyoku(store.run));
@@ -31,7 +38,7 @@ const ura = computed(() =>
   <SheetLayer label="和了">
     <h2>和了<span class="pts">+{{ result.score.points.toLocaleString() }}点</span></h2>
     <div class="tilesline">
-      <MjTile v-for="t in tiles" :key="t.id" :kind="t.kind" :red="t.red" :gold="t.gold" size="md" />
+      <MjTile v-for="t in tiles" :key="t.id" :kind="t.kind" :red="t.red" :gold="t.gold" :wild="t.wild" size="md" />
     </div>
     <div class="yakulist">
       <template v-for="(l, i) in result.score.lines" :key="i">

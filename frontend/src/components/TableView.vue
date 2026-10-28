@@ -138,6 +138,11 @@ const hint = computed(() => {
           <span class="msg">和了れます</span>
           <span class="yk">{{ store.winPreview.names.join('・') }}</span>
           <span class="pt">{{ store.winPreview.points.toLocaleString() }}点</span>
+          <span v-if="store.winPreview.jokerKinds.length" class="msg jk">
+            万能牌は
+            <MjTile v-for="(kind, i) in store.winPreview.jokerKinds" :key="i" :kind="kind" size="xs" />
+            として
+          </span>
         </template>
         <template v-else>
           <span v-if="hint" class="msg">{{ hint }}</span>
