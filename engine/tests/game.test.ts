@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { ENGINE_VERSION, apply, createGame, isFinished, newLog, replay, type GameAction, type GameState, type RunLog } from '../src/game.js';
-import { canModify, runSummary } from '../src/run.js';
+import { SELL_PRICES } from '../src/items.js';
+import { buyBlocker, canModify, runSummary } from '../src/run.js';
 import { botAction } from '../src/sim.js';
 import { KIND_COUNT } from '../src/tiles.js';
 
@@ -102,6 +103,7 @@ describe('操作ログと再生', () => {
       { type: 'consumable', id: 'tsumo' },
       { type: 'useConsumable', index: 'length' },
       { type: 'sell', index: 'length' },
+      { type: 'sellConsumable', index: 0 },
       { type: 'foo' },
     ];
     for (const a of bad) expect(() => apply(g, a as GameAction), JSON.stringify(a)).toThrow();
@@ -112,11 +114,13 @@ describe('操作ログと再生', () => {
     let g = createGame(3);
     while (g.kyoku) g = apply(g, g.kyoku.result ? { type: 'settle' } : botAction(g.kyoku, { target: '和了形' }));
     expect(g.run.phase).toBe('shop');
-    const rich = { ...g, run: { ...g.run, money: 99, charms: ['chokin' as const] } };
+    const rich = { ...g, run: { ...g.run, money: 99, charms: ['chokin' as const], consumables: ['tsumo' as const] } };
     for (const a of [
       { type: 'buy', index: 'length' },
       { type: 'buy', index: -1 },
       { type: 'sell', index: 'length' },
+      { type: 'sellConsumable', index: 'length' },
+      { type: 'sellConsumable', index: 1 },
     ]) {
       expect(() => apply(rich, a as GameAction), JSON.stringify(a)).toThrow();
     }
@@ -125,6 +129,27 @@ describe('操作ログと再生', () => {
       expect(() => apply(modShop, { type: 'buy', index: 0, target: target as number }), String(target)).toThrow();
     }
     expect(apply(modShop, { type: 'buy', index: 0, target: 0 }).run.composition.count[0]).toBe(0);
+  });
+
+  it('ショップでお守りと消耗品を売ると、枠が空いて祝儀が増える', () => {
+    let g = createGame(3);
+    while (g.kyoku) g = apply(g, g.kyoku.result ? { type: 'settle' } : botAction(g.kyoku, { target: '和了形' }));
+    const owns = { ...g, run: { ...g.run, money: 0, charms: ['chokin' as const], consumables: ['tsumo' as const, 'hiroi' as const] } };
+    const charmSold = apply(owns, { type: 'sell', index: 0 });
+    expect(charmSold.run).toMatchObject({ charms: [], money: SELL_PRICES.charm });
+    const consumableSold = apply(owns, { type: 'sellConsumable', index: 1 });
+    expect(consumableSold.run).toMatchObject({ consumables: ['tsumo'], money: SELL_PRICES.consumable });
+  });
+
+  it('消耗品の枠がいっぱいでも、売れば買える', () => {
+    let g = createGame(3);
+    while (g.kyoku) g = apply(g, g.kyoku.result ? { type: 'settle' } : botAction(g.kyoku, { target: '和了形' }));
+    const offer = { kind: 'consumable' as const, id: 'nozoki' as const, price: 3, sold: false };
+    const full = { ...g, run: { ...g.run, money: 99, consumables: ['tsumo' as const, 'hiroi' as const], shop: [offer] } };
+    expect(buyBlocker(full.run, 0)).toBe('consumablesFull');
+    const sold = apply(full, { type: 'sellConsumable', index: 0 });
+    expect(buyBlocker(sold.run, 0)).toBeNull();
+    expect(apply(sold, { type: 'buy', index: 0 }).run.consumables).toEqual(['hiroi', 'nozoki']);
   });
 
   it('版の違うログは再生しない', () => {

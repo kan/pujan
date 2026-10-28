@@ -14,7 +14,7 @@ import {
   createRun,
   leaveShop,
   reroll,
-  sellCharm,
+  sell,
   settleKyoku,
   type RunOptions,
   type RunState,
@@ -39,6 +39,8 @@ export type GameAction =
   | { type: 'buy'; index: number; target?: Kind }
   /** 持っているお守り（index 番目）を売る */
   | { type: 'sell'; index: number }
+  /** 持っている消耗品（index 番目）を売る */
+  | { type: 'sellConsumable'; index: number }
   | { type: 'reroll' }
   /** ショップを出て次の局へ進む */
   | { type: 'leave' };
@@ -104,7 +106,9 @@ export function apply(g: GameState, action: GameAction): GameState {
     case 'buy':
       return { ...g, run: buy(inShop(g), action.index, action.target) };
     case 'sell':
-      return { ...g, run: sellCharm(inShop(g), action.index) };
+      return { ...g, run: sell(inShop(g), 'charm', action.index) };
+    case 'sellConsumable':
+      return { ...g, run: sell(inShop(g), 'consumable', action.index) };
     case 'reroll':
       return { ...g, run: reroll(inShop(g)) };
     case 'leave':

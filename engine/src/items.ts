@@ -116,7 +116,8 @@ export const PRICES = { charm: 5, equip: 8, consumable: 3, mod: 3, scroll: 3 } a
 export const MAX_CHARMS = 5;
 export const MAX_CONSUMABLES = 2;
 export const REROLL_PRICE = 2;
-export const SELL_PRICE = 2;
+/** ショップで持ち物を売ったときにもらえる祝儀 */
+export const SELL_PRICES = { charm: 2, consumable: 1 } as const;
 
 /** 基本ルールの値（プロトタイプの初期設定） */
 export interface BaseRules {

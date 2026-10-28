@@ -14,7 +14,7 @@ import {
   MODS,
   PRICES,
   REROLL_PRICE,
-  SELL_PRICE,
+  SELL_PRICES,
   modifiersFor,
   type BaseRules,
   type BossId,
@@ -370,9 +370,14 @@ function itemAt<T>(list: readonly T[] | null, index: number): T | undefined {
   return list && Number.isInteger(index) && index >= 0 && index < list.length ? list[index] : undefined;
 }
 
-export function sellCharm(run: RunState, index: number): RunState {
-  if (run.phase !== 'shop' || !itemAt(run.charms, index)) throw new Error('no such charm');
-  return { ...run, charms: run.charms.filter((_, i) => i !== index), money: run.money + SELL_PRICE };
+/** 売れる持ち物の種類 */
+export type SellKind = keyof typeof SELL_PRICES;
+
+/** 持っているお守りか消耗品（index 番目）を売って枠を空ける（ショップの中だけ） */
+export function sell(run: RunState, kind: SellKind, index: number): RunState {
+  const key = kind === 'charm' ? 'charms' : 'consumables';
+  if (run.phase !== 'shop' || !itemAt(run[key], index)) throw new Error(`no such ${kind}`);
+  return { ...run, [key]: run[key].filter((_, i) => i !== index), money: run.money + SELL_PRICES[kind] };
 }
 
 /** 牌の改造が選べる種類か */

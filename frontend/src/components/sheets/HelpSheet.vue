@@ -13,7 +13,7 @@ import {
   MAX_CHARMS,
   MAX_CONSUMABLES,
   MODS,
-  SELL_PRICE,
+  SELL_PRICES,
   modifiersFor,
   notenPenalty,
 } from '@pujan/engine';
@@ -40,7 +40,7 @@ const plain = (list: readonly { name: string; description: string }[]) =>
 const axisOrder = [...new Set(CHARMS.map((c) => c.axis))];
 const ITEM_SECTIONS = [
   {
-    title: `お守り（${MAX_CHARMS}つまで。売ると祝儀${SELL_PRICE}）`,
+    title: `お守り（${MAX_CHARMS}つまで。売ると祝儀${SELL_PRICES.charm}）`,
     rows: [...CHARMS]
       .sort((a, b) => axisOrder.indexOf(a.axis) - axisOrder.indexOf(b.axis))
       .map((c) => {
@@ -50,7 +50,10 @@ const ITEM_SECTIONS = [
       }),
   },
   { title: '設備（ずっと効く強化）', rows: plain(EQUIPMENT) },
-  { title: `消耗品（${MAX_CONSUMABLES}つまで。局の中で1回使う。リーチ中は使えない）`, rows: plain(CONSUMABLES) },
+  {
+    title: `消耗品（${MAX_CONSUMABLES}つまで。局の中で1回使う。リーチ中は使えない。売ると祝儀${SELL_PRICES.consumable}）`,
+    rows: plain(CONSUMABLES),
+  },
   { title: '牌の改造（山の構成を変える。ランの間ずっと残る）', rows: plain(MODS) },
   { title: 'ボス（各場の4局目の縛り）', rows: plain(BOSSES) },
 ];

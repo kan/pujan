@@ -1,6 +1,6 @@
 <script setup lang="ts">
 /**
- * ショップ（docs/SPEC.md §2.3、§4.4）。品物 3 つ、品替え、持っているお守りの売却。
+ * ショップ（docs/SPEC.md §2.3、§4.4）。品物 3 つ、品替え、持っているお守りと消耗品の売却。
  * 買えるかどうかは engine の buyBlocker に聞き、買えない理由を案内する。
  * 牌の改造を買うときは、対象の牌を選ぶ画面に切り替える。
  */
@@ -10,7 +10,7 @@ import {
   MAX_CHARMS,
   MAX_CONSUMABLES,
   REROLL_PRICE,
-  SELL_PRICE,
+  SELL_PRICES,
   buyBlocker,
   canModify,
   type BuyBlocker,
@@ -19,7 +19,7 @@ import {
 } from '@pujan/engine';
 import { useGameStore } from '@/stores/game';
 import { OFFER_KIND_LABEL } from '@pujan/engine';
-import { charmDef, compositionText, equipDef, modifiedKinds, offerText } from '@/lib/labels';
+import { charmDef, compositionText, consumableDef, equipDef, modifiedKinds, offerText } from '@/lib/labels';
 import MjTile from '../MjTile.vue';
 import SheetLayer from '../SheetLayer.vue';
 
@@ -33,7 +33,7 @@ const offers = computed(() =>
 const notice = ref('');
 const NOTICES: Partial<Record<BuyBlocker, string>> = {
   charmsFull: `お守りは${MAX_CHARMS}つまでです。どれかを売ってから買ってください。`,
-  consumablesFull: `消耗品は${MAX_CONSUMABLES}つまでしか持てません。`,
+  consumablesFull: `消耗品は${MAX_CONSUMABLES}つまでです。どれかを売ってから買ってください。`,
 };
 
 /** 牌の改造で対象を選んでいる品物の番号 */
@@ -123,11 +123,18 @@ const equipNames = computed(() => run.value.equipment.map((id) => equipDef(id).n
     </p>
     <!-- 牌の改造を買う前に、今の牌山を確かめられるように（閉じるとショップに戻る） -->
     <button class="ghost" type="button" aria-haspopup="dialog" @click="emit('openInventory')">持ち物と牌山を見る</button>
-    <div v-if="run.charms.length" class="owns">
-      <span v-for="(id, i) in run.charms" :key="`${id}-${i}`" class="own">
+    <div v-if="run.charms.length || run.consumables.length" class="owns">
+      <span v-for="(id, i) in run.charms" :key="`charm-${id}-${i}`" class="own">
         <b>{{ charmDef(id).name }}</b>
-        <small>{{ charmDef(id).description }}</small>
-        <button class="ghost" type="button" @click="act({ type: 'sell', index: i })">売る +{{ SELL_PRICE }}</button>
+        <small>お守り: {{ charmDef(id).description }}</small>
+        <button class="ghost" type="button" @click="act({ type: 'sell', index: i })">売る +{{ SELL_PRICES.charm }}</button>
+      </span>
+      <span v-for="(id, i) in run.consumables" :key="`consumable-${id}-${i}`" class="own">
+        <b>{{ consumableDef(id).name }}</b>
+        <small>消耗品: {{ consumableDef(id).description }}</small>
+        <button class="ghost" type="button" @click="act({ type: 'sellConsumable', index: i })">
+          売る +{{ SELL_PRICES.consumable }}
+        </button>
       </span>
     </div>
   </SheetLayer>
