@@ -1,12 +1,14 @@
 <script setup lang="ts">
 /**
  * 感想を送る（docs/SPEC.md フェーズ 4.5）。メニューとラン終了の画面から開く。
- * 本文に、今のランの雀士・段位・進み具合・版を添える（送る前に何を添えるかを見せる）
+ * 本文に、今のランの雀士・段位・進み具合・版を添える（送る前に何を添えるかを見せる）。
+ * 送れた感想は端末に残し、下に新しい順で見せる（同じことを書き直さずに済むように）
  */
 import { computed, ref } from 'vue';
 import { FEEDBACK_MAX_LENGTH, feedbackContext } from '@pujan/engine';
 import { api, ApiError } from '@/api/client';
-import { contextText } from '@/lib/feedback';
+import { contextText, sentAtText } from '@/lib/feedback';
+import { addSentFeedback, browserStorage, loadSentFeedback, MAX_SENT_FEEDBACK } from '@/lib/storage';
 import { useGameStore } from '@/stores/game';
 import SheetLayer from '../SheetLayer.vue';
 
@@ -21,15 +23,24 @@ const error = ref('');
 const context = feedbackContext(store.game, store.runId, __APP_VERSION__);
 const contextLine = contextText(context);
 
+const storage = browserStorage();
+const sent = ref(loadSentFeedback(storage));
+const history = computed(() => [...sent.value].reverse());
+
 const length = computed(() => body.value.trim().length);
 const canSend = computed(() => status.value === 'editing' && length.value > 0 && length.value <= FEEDBACK_MAX_LENGTH);
 
 async function send() {
   if (!canSend.value) return;
+  const text = body.value.trim();
   status.value = 'sending';
   error.value = '';
   try {
-    await api.sendFeedback(body.value.trim(), context);
+    await api.sendFeedback(text, context);
+    const f = { body: text, sentAt: Date.now(), context: contextLine };
+    addSentFeedback(storage, f);
+    // 保存できない端末でも、開いている間は見えるようにメモリ側にも足す
+    sent.value = [...sent.value, f].slice(-MAX_SENT_FEEDBACK);
     status.value = 'sent';
   } catch (e) {
     status.value = 'editing';
@@ -66,6 +77,16 @@ async function send() {
       <p class="note" role="status">送りました。ありがとうございます。</p>
       <button class="btn" type="button" @click="emit('close')">閉じる</button>
     </template>
+    <section v-if="history.length" class="history" aria-label="送った感想">
+      <h3>送った感想</h3>
+      <p class="note">この端末から送ったものを、新しい順に{{ MAX_SENT_FEEDBACK }}件まで出します。</p>
+      <ul>
+        <li v-for="(f, i) in history" :key="i">
+          <p class="note">{{ sentAtText(f.sentAt) }}・{{ f.context }}</p>
+          <p class="text">{{ f.body }}</p>
+        </li>
+      </ul>
+    </section>
   </SheetLayer>
 </template>
 
@@ -87,5 +108,36 @@ textarea:focus-visible {
 }
 .count {
   text-align: right;
+}
+.history {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.history h3 {
+  margin: 0;
+  font-size: 15px;
+}
+.history ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.history li {
+  padding: 8px 10px;
+  background: var(--felt-dark);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+.history li p {
+  margin: 0;
+}
+.history .text {
+  margin-top: 4px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 </style>

@@ -2,7 +2,10 @@ import { describe, expect, it } from 'vitest';
 import { EMPTY_PROGRESS, newLog } from '@pujan/engine';
 import { memoryStorage } from './memory-storage';
 import {
+  addSentFeedback,
   clearRunLog,
+  loadSentFeedback,
+  MAX_SENT_FEEDBACK,
   loadChoice,
   loadProgress,
   loadRunLog,
@@ -84,5 +87,26 @@ describe('チュートリアル', () => {
     expect(loadTutorialSeen(s)).toBe(false);
     saveTutorialSeen(s);
     expect(loadTutorialSeen(s)).toBe(true);
+  });
+});
+
+describe('送った感想', () => {
+  it('送った順に残し、古いものから捨てる', () => {
+    const s = memoryStorage();
+    expect(loadSentFeedback(s)).toEqual([]);
+    for (let i = 0; i < MAX_SENT_FEEDBACK + 2; i++) addSentFeedback(s, { body: `感想${i}`, sentAt: i, context: 'c' });
+    const sent = loadSentFeedback(s);
+    expect(sent).toHaveLength(MAX_SENT_FEEDBACK);
+    expect(sent[0]?.body).toBe('感想2');
+    expect(sent.at(-1)?.body).toBe(`感想${MAX_SENT_FEEDBACK + 1}`);
+  });
+
+  it('壊れた中身や形の違うものは読まない', () => {
+    const s = memoryStorage();
+    s.setItem('pujan.sent-feedback.v1', '{not json');
+    expect(loadSentFeedback(s)).toEqual([]);
+    s.setItem('pujan.sent-feedback.v1', JSON.stringify([{ body: 'a', sentAt: 1, context: 'c' }, { body: 'b' }, null]));
+    expect(loadSentFeedback(s)).toEqual([{ body: 'a', sentAt: 1, context: 'c' }]);
+    expect(loadSentFeedback(null)).toEqual([]);
   });
 });

@@ -28,9 +28,12 @@ const SETTLED_KEY = 'pujan.settled.v1';
 const TUTORIAL_KEY = 'pujan.tutorial-seen.v1';
 const PROGRESS_KEY = 'pujan.progress.v1';
 const CHOICE_KEY = 'pujan.choice.v1';
+const SENT_FEEDBACK_KEY = 'pujan.sent-feedback.v1';
 
 /** 送れなかった記録を持っておく数（古いものから捨てる） */
 const MAX_PENDING = 5;
+/** 送った感想を覚えておく数（古いものから捨てる） */
+export const MAX_SENT_FEEDBACK = 20;
 
 /** localStorage。触るだけで例外を投げる環境があるので、そのときは null */
 export function browserStorage(): KeyValueStorage | null {
@@ -148,4 +151,27 @@ export function loadChoice(storage: KeyValueStorage | null): RunChoice {
 
 export function saveChoice(storage: KeyValueStorage | null, choice: RunChoice): void {
   write(storage, CHOICE_KEY, choice);
+}
+
+/** この端末から送った感想（感想の画面で見返す）。サーバーには問い合わせない */
+export interface SentFeedback {
+  body: string;
+  /** 送った日時（ミリ秒） */
+  sentAt: number;
+  /** 一緒に送ったものの説明（contextText） */
+  context: string;
+}
+
+/** 送った順。形の違うものは捨てる */
+export function loadSentFeedback(storage: KeyValueStorage | null): SentFeedback[] {
+  const v = read(storage, SENT_FEEDBACK_KEY);
+  if (!Array.isArray(v)) return [];
+  return v.filter(
+    (f): f is SentFeedback =>
+      typeof f?.body === 'string' && typeof f?.sentAt === 'number' && typeof f?.context === 'string',
+  );
+}
+
+export function addSentFeedback(storage: KeyValueStorage | null, f: SentFeedback): void {
+  write(storage, SENT_FEEDBACK_KEY, [...loadSentFeedback(storage), f].slice(-MAX_SENT_FEEDBACK));
 }

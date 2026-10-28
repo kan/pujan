@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { ENGINE_VERSION, apply, createGame, feedbackContext, isFinished, type GameState } from '@pujan/engine';
-import { contextText } from './feedback';
+import { contextText, sentAtText } from './feedback';
 
 /** ラン終了までツモ切りを続ける（和了らないので東場で終わる） */
 function playToEnd(g: GameState): GameState {
@@ -49,5 +49,11 @@ describe('感想に添えるランの様子', () => {
     expect(ctx.wave).toBe(0);
     expect(ctx.score).toBe(g.run.waveScores.reduce((a, s) => a + s, 0));
     expect(contextText(ctx)).toBe(`くま・初段、0場突破・合計${ctx.score.toLocaleString()}点、版 v`);
+  });
+});
+
+describe('送った感想の日時', () => {
+  it('端末の時刻で出す', () => {
+    expect(sentAtText(new Date(2026, 9, 28, 9, 5).getTime())).toBe('2026/10/28 9:05');
   });
 });
