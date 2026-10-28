@@ -8,7 +8,9 @@ import {
   MODS,
   WAVE_COUNT,
   WIND_NAMES,
+  ALL_KINDS,
   characterName,
+  defaultComposition,
   danName,
   startLabel,
   type NewUnlocks,
@@ -50,6 +52,13 @@ export function roundLabel(wave: number, kyoku: number, honba: number, dealer: b
 /** 山にある枚数と赤・金（「4枚・赤1」） */
 export function compositionText(c: Composition, k: Kind): string {
   return `${c.count[k]}枚${c.red[k] ? `・赤${c.red[k]}` : ''}${c.gold[k] ? `・金${c.gold[k]}` : ''}`;
+}
+
+/** 牌の改造で、ランを始めたときの山から枚数・赤・金のどれかが変わった牌 */
+export function modifiedKinds(run: RunState): Set<Kind> {
+  const c = run.composition;
+  const d = defaultComposition(run.base.redFives);
+  return new Set(ALL_KINDS.filter((k) => c.count[k] !== d.count[k] || c.red[k] !== d.red[k] || c.gold[k] !== d.gold[k]));
 }
 
 /** ランの成績（「2場突破・合計3,000点」「全場クリア・合計…」） */

@@ -19,10 +19,11 @@ import {
 } from '@pujan/engine';
 import { useGameStore } from '@/stores/game';
 import { OFFER_KIND_LABEL } from '@pujan/engine';
-import { charmDef, compositionText, equipDef, offerText } from '@/lib/labels';
+import { charmDef, compositionText, equipDef, modifiedKinds, offerText } from '@/lib/labels';
 import MjTile from '../MjTile.vue';
 import SheetLayer from '../SheetLayer.vue';
 
+const emit = defineEmits<{ openInventory: [] }>();
 const store = useGameStore();
 const run = computed(() => store.run);
 const offers = computed(() =>
@@ -64,6 +65,7 @@ function pick(kind: Kind) {
 }
 
 const comp = computed(() => run.value.composition);
+const modified = computed(() => modifiedKinds(run.value));
 const equipNames = computed(() => run.value.equipment.map((id) => equipDef(id).name).join('、') || 'なし');
 </script>
 
@@ -76,6 +78,7 @@ const equipNames = computed(() => run.value.equipment.map((id) => equipDef(id).n
         v-for="k in ALL_KINDS"
         :key="k"
         class="pick"
+        :class="{ changed: modified.has(k) }"
         type="button"
         :disabled="!canModify(comp, pickingOffer.id, k)"
         @click="pick(k)"
@@ -118,6 +121,8 @@ const equipNames = computed(() => run.value.equipment.map((id) => equipDef(id).n
       お守り {{ run.charms.length }}/{{ MAX_CHARMS }} ・ 消耗品 {{ run.consumables.length }}/{{ MAX_CONSUMABLES }} ・ 設備
       {{ equipNames }}
     </p>
+    <!-- 牌の改造を買う前に、今の牌山を確かめられるように（閉じるとショップに戻る） -->
+    <button class="ghost" type="button" aria-haspopup="dialog" @click="emit('openInventory')">持ち物と牌山を見る</button>
     <div v-if="run.charms.length" class="owns">
       <span v-for="(id, i) in run.charms" :key="`${id}-${i}`" class="own">
         <b>{{ charmDef(id).name }}</b>

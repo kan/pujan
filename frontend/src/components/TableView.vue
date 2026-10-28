@@ -6,7 +6,7 @@
 import { computed, ref } from 'vue';
 import { MAX_CHARMS, bossOf, isDealerKyoku } from '@pujan/engine';
 import { useGameStore } from '@/stores/game';
-import { WIND_NAMES, bossDef, consumableDef, roundLabel } from '@/lib/labels';
+import { WIND_NAMES, bossDef, consumableDef, modifiedKinds, roundLabel } from '@/lib/labels';
 import HandArea from './HandArea.vue';
 import MjTile from './MjTile.vue';
 
@@ -19,6 +19,8 @@ const run = computed(() => store.run);
 const k = computed(() => store.shownKyoku);
 const wind = computed(() => WIND_NAMES[run.value.wave]);
 const round = computed(() => run.value.round);
+/** 牌山を改造した（持ち物のボタンに印を出す） */
+const modded = computed(() => modifiedKinds(run.value).size > 0);
 
 const turnsLeft = computed(() => (k.value ? k.value.setup.mods.turns - k.value.turn : 0));
 const boss = computed(() => {
@@ -94,8 +96,11 @@ const hint = computed(() => {
 
     <div class="info inv">
       <span class="c money">祝儀 <b>{{ run.money }}</b></span>
-      <button class="c" type="button" @click="emit('openInventory')">
-        お守り <b>{{ run.charms.length }}/{{ MAX_CHARMS }}</b>
+      <!-- 設備と牌山もここから見るので、お守りの数だけでなく「持ち物」と書く -->
+      <button class="c" type="button" aria-haspopup="dialog" @click="emit('openInventory')">
+        持ち物 <b>{{ run.charms.length }}/{{ MAX_CHARMS }}</b>
+        <span v-if="run.equipment.length" class="sub">設備{{ run.equipment.length }}</span>
+        <span v-if="modded" class="sub">改造</span>
       </button>
       <button
         v-for="(id, i) in run.consumables"

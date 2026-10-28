@@ -266,6 +266,14 @@ h1 .beta {
   cursor: pointer;
   color: var(--fg);
 }
+/* 持ち物のボタンに添える設備の数・改造の印 */
+.inv .sub {
+  font-size: 11px;
+  color: var(--gold);
+  border: 1px solid var(--gold);
+  border-radius: 6px;
+  padding: 0 4px;
+}
 .inv .use {
   border-style: dashed;
   border-color: var(--gold);
@@ -600,6 +608,14 @@ h1 .beta {
 .pick:disabled {
   opacity: 0.3;
   cursor: default;
+}
+/* 牌の改造で変わった牌（金の枠）と、山から抜いた牌 */
+.pick.changed {
+  border-color: var(--gold);
+  color: var(--fg);
+}
+.pick.gone {
+  opacity: 0.35;
 }
 .note.warn {
   color: var(--danger);

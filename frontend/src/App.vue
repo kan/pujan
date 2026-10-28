@@ -110,7 +110,7 @@ const sheet = computed(() => {
     @open-menu="panel = 'menu'"
     @new-run="panel = 'start'"
   />
-  <ShopSheet v-else-if="sheet === 'shop'" />
+  <ShopSheet v-else-if="sheet === 'shop'" @open-inventory="panel = 'inventory'" />
   <IntroSheet v-else-if="sheet === 'intro'" />
 
   <TutorialView v-if="tutorial" :first-visit="tutorial.firstVisit" @close="closeTutorial" />
