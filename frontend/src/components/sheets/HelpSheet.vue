@@ -10,6 +10,8 @@ import {
   CONSUMABLES,
   DEFAULT_BASE_RULES,
   EQUIPMENT,
+  EXTEND_PRICE,
+  EXTEND_TURNS,
   MAX_CHARMS,
   MAX_CONSUMABLES,
   MODS,
@@ -58,6 +60,16 @@ const ITEM_SECTIONS = [
   {
     title: `消耗品（${MAX_CONSUMABLES}つまで。局の中で1回使う。${riichiUsable}のほかはリーチ中は使えない。売ると祝儀${SELL_PRICES.consumable}）`,
     rows: plain(CONSUMABLES),
+  },
+  {
+    title: '延長（局の画面）',
+    rows: [
+      {
+        name: '延長',
+        tag: '',
+        description: `最終巡のツモのあと、祝儀${EXTEND_PRICE}を払って巡数＋${EXTEND_TURNS}。延長札と合わせて1局に1回。リーチ中も使える`,
+      },
+    ],
   },
   { title: '牌の改造（山の構成を変える。ランの間ずっと残る）', rows: plain(MODS) },
   {

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { ENGINE_VERSION, apply, createGame, isFinished, newLog, replay, type GameAction, type GameState, type RunLog } from '../src/game.js';
-import { GACHA, SELL_PRICES } from '../src/items.js';
-import type { KyokuResult } from '../src/kyoku.js';
+import { EXTEND_PRICE, EXTEND_TURNS, GACHA, SELL_PRICES } from '../src/items.js';
+import { turnLimit, type KyokuResult } from '../src/kyoku.js';
 import { createRng, mix32 } from '../src/rng.js';
 import { buyBlocker, canGacha, canModify, createRun, gachaRefund, runSummary, settleKyoku } from '../src/run.js';
 import { botAction } from '../src/sim.js';
@@ -251,6 +251,30 @@ describe('操作ログと再生', () => {
       expect(cleared.gachaTickets).toBe(1);
       expect(cleared.lastWaveBonus?.tickets).toBe(1);
     });
+  });
+
+  it('祝儀を払って最終巡で巡を延ばせる。延長札と合わせて 1 局に 1 回まで', () => {
+    let g = createGame(4);
+    const rich = (x: GameState) => ({ ...x, run: { ...x.run, money: 20 } });
+    // 最終巡より前は延ばせない
+    expect(() => apply(rich(g), { type: 'extend' })).toThrow();
+    while (g.kyoku && !g.kyoku.result && g.kyoku.turn < turnLimit(g.kyoku)) {
+      g = apply(g, { type: 'discard', zone: 'drawn', index: 0 });
+    }
+    expect(g.kyoku?.result).toBeNull();
+    // 祝儀が足りなければ延ばせない
+    expect(() => apply({ ...g, run: { ...g.run, money: EXTEND_PRICE - 1 } }, { type: 'extend' })).toThrow(/money/);
+    const extended = apply(rich(g), { type: 'extend' });
+    expect(extended.run.money).toBe(20 - EXTEND_PRICE);
+    expect(turnLimit(extended.kyoku!)).toBe(12 + EXTEND_TURNS);
+    expect(() => apply(extended, { type: 'extend' })).toThrow();
+    // リーチ中も延ばせる。山が尽きていれば延ばせない
+    const riichi = { ...rich(g), kyoku: { ...g.kyoku!, riichi: { turn: 5, stick: 100 } } };
+    expect(apply(riichi, { type: 'extend' }).run.money).toBe(20 - EXTEND_PRICE);
+    expect(() => apply({ ...rich(g), kyoku: { ...g.kyoku!, wall: [] } }, { type: 'extend' })).toThrow();
+    // 延長札で延ばしたあとは、祝儀でも延ばせない
+    const withTicket = apply({ ...rich(g), run: { ...rich(g).run, consumables: ['encho' as const] } }, { type: 'useConsumable', index: 0 });
+    expect(() => apply(withTicket, { type: 'extend' })).toThrow();
   });
 
   it('版の違うログは再生しない', () => {

@@ -110,7 +110,7 @@ function stats() {
     ['ボス', 'ラン'],
     Object.entries(t.lostBoss).sort((a, b) => b[1] - a[1]),
   );
-  console.log(`\n## 局\n局 ${t.kyoku}・和了 ${t.wins}・和了率 ${pct(t.wins, t.kyoku)}`);
+  console.log(`\n## 局\n局 ${t.kyoku}・和了 ${t.wins}・和了率 ${pct(t.wins, t.kyoku)}・巡を延ばした 祝儀で ${t.extends} 回／延長札で ${t.extendTickets} 回`);
   table(
     '和了の役',
     ['役', '和了', '和了のうち'],

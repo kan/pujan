@@ -49,10 +49,14 @@ export type KyokuAction =
   | { type: 'tsumo' }
   | { type: 'redeal' }
   /** 消耗品を使う。染め粉は残す色（color: 0 萬子・1 筒子・2 索子・3 字牌）が要る */
-  | { type: 'consumable'; id: ConsumableId; color?: number };
+  | { type: 'consumable'; id: ConsumableId; color?: number }
+  /** 祝儀を払って巡を延ばす（延長札と同じ効き目） */
+  | { type: 'extend' };
 
-/** 消耗品を除いた局の操作（消耗品は持ち物から外す必要があるので、ランの側で扱う） */
-export type KyokuMove = Exclude<KyokuAction, { type: 'consumable' }>;
+/**
+ * 消耗品と延長を除いた局の操作（消耗品は持ち物から外し、延長は祝儀を払う必要があるので、ランの側で扱う）
+ */
+export type KyokuMove = Exclude<KyokuAction, { type: 'consumable' } | { type: 'extend' }>;
 
 export type KyokuResult =
   | {
@@ -303,11 +307,25 @@ export function canRiichi(s: KyokuState, zone: Zone, index: number): boolean {
   return w === null || w.length > 0;
 }
 
+/**
+ * 巡を延ばせるか（延長札と、祝儀を払う延長で同じ）。最終巡のツモのあと、打牌の前だけ。
+ * 延長札と合わせて 1 局に 1 回まで。手を変えないのでリーチ中も延ばせる。山が尽きていれば延ばしても引けない
+ */
+export function canExtend(s: KyokuState): boolean {
+  return isActing(s) && s.turn === turnLimit(s) && s.extraTurns === 0 && s.wall.length > 0;
+}
+
+/** 巡を延ばす。最終巡ではなくなるので、海底の翻も和了の判定し直しで外れる */
+function extend(s: KyokuState): KyokuState {
+  if (!canExtend(s)) throw new Error('cannot extend');
+  const next = { ...s, extraTurns: EXTEND_TURNS };
+  return { ...next, win: judge(next) };
+}
+
 export function canUseConsumable(s: KyokuState, id: ConsumableId): boolean {
   if (!isActing(s)) return false;
   if (s.riichi && !CONSUMABLES.find((c) => c.id === id)?.usableInRiichi) return false;
-  // 延長札は最終巡のツモのあと、打牌の前だけ（1 局に 1 回）。山が尽きていれば延ばしても引けない
-  if (id === 'encho') return s.turn === turnLimit(s) && s.extraTurns === 0 && s.wall.length > 0;
+  if (id === 'encho') return canExtend(s);
   if (id === 'hiroi') return s.river.length > 0;
   if (id === 'nozoki') return !s.peek;
   return true;
@@ -359,6 +377,8 @@ export function step(s: KyokuState, action: KyokuAction): KyokuState {
     }
     case 'consumable':
       return useConsumable(s, action.id, action.color);
+    case 'extend':
+      return extend(s);
     case 'tsumo':
       return declareWin(s);
     default:
@@ -391,7 +411,7 @@ function useConsumable(s: KyokuState, id: ConsumableId, color?: number): KyokuSt
     }
     next = dye(s, color);
   } else if (id === 'encho') {
-    next = { ...s, extraTurns: EXTEND_TURNS };
+    return extend(s);
   } else if (id === 'tsumo') {
     const wall = s.wall.slice();
     const [old, ...restDrawn] = s.drawn;

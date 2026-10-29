@@ -5,6 +5,7 @@
  * 操作の列とシードと基本ルールを並べたものが操作ログ（RunLog）で、replay() で同じ結果を作り直せる。
  * 乱数はすべて状態に入っているので、同じログからは必ず同じ結果になる。
  */
+import { EXTEND_PRICE } from './items.js';
 import { step, type KyokuMove, type KyokuState } from './kyoku.js';
 import { DEFAULT_START, isRunStart, type RunStart } from './progression.js';
 import {
@@ -34,6 +35,8 @@ export type GameAction =
   | KyokuMove
   /** 持っている消耗品（index 番目）を使う。染め粉は残す色（color）が要る */
   | { type: 'useConsumable'; index: number; color?: number }
+  /** 祝儀（EXTEND_PRICE）を払って、最終巡で巡を延ばす */
+  | { type: 'extend' }
   /** 終わった局を精算する。親の和了では renchan で連荘か和了やめかを選ぶ */
   | { type: 'settle'; renchan?: boolean }
   /** ショップの品物（index 番目）を買う。牌の改造は対象の種類（target）が要る */
@@ -100,6 +103,12 @@ export function apply(g: GameState, action: GameAction): GameState {
       const run = consumeConsumable(g.run, action.index);
       const id = g.run.consumables[action.index];
       return { ...g, run, kyoku: step(activeKyoku(g), { type: 'consumable', id, color: action.color }) };
+    }
+    case 'extend': {
+      if (g.run.money < EXTEND_PRICE) throw new Error('not enough money to extend');
+      // 局が延ばせないときは step が例外を投げるので、祝儀は引かれない
+      const kyoku = step(activeKyoku(g), { type: 'extend' });
+      return { ...g, run: { ...g.run, money: g.run.money - EXTEND_PRICE }, kyoku };
     }
     case 'settle': {
       const result = activeKyoku(g).result;

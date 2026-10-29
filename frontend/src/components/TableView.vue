@@ -4,7 +4,17 @@
  * ショップや和了のシートが開いている間も、直前の局を後ろに表示しておく。
  */
 import { computed, ref, watch } from 'vue';
-import { MAX_CHARMS, SOME_COLORS, bossOf, innateCharms, isDealerKyoku, turnLimit, type ConsumableId } from '@pujan/engine';
+import {
+  EXTEND_PRICE,
+  EXTEND_TURNS,
+  MAX_CHARMS,
+  SOME_COLORS,
+  bossOf,
+  innateCharms,
+  isDealerKyoku,
+  turnLimit,
+  type ConsumableId,
+} from '@pujan/engine';
 import { useGameStore } from '@/stores/game';
 import { WIND_NAMES, bossDef, consumableDef, modifiedKinds, roundLabel } from '@/lib/labels';
 import HandArea from './HandArea.vue';
@@ -63,7 +73,9 @@ const progress = computed(() => Math.max(0, Math.min(100, (round.value.score / r
 const sel = computed(() => store.selection);
 const usedIds = computed(() => store.winPreview?.tileIds ?? new Set<number>());
 
-/** 操作ボタンが 1 つでも出ている */
+/**
+ * 打牌のほかの操作ボタンが 1 つでも出ている。延長は数えない（延ばしても打牌は要るので、打牌の案内を消さない）
+ */
 const hasAction = computed(() => store.canRedealNow || store.canHold || store.canRiichiSelected || !!store.winPreview);
 
 /** 中央の案内の文 */
@@ -215,6 +227,16 @@ const hint = computed(() => {
         <button v-if="store.canRiichiSelected" class="btn riichi" type="button" @click="store.riichiSelected()">リーチ</button>
         <button v-if="store.winPreview" class="btn win wide" type="button" @click="store.act({ type: 'tsumo' })">
           和了 {{ store.winPreview.points.toLocaleString() }}
+        </button>
+        <!-- 祝儀が足りないときも出しておき、押せないことで値段を知らせる -->
+        <button
+          v-if="store.canExtendNow"
+          class="btn"
+          type="button"
+          :disabled="run.money < EXTEND_PRICE"
+          @click="store.act({ type: 'extend' })"
+        >
+          延長 +{{ EXTEND_TURNS }}巡 祝儀{{ EXTEND_PRICE }}
         </button>
         <span v-if="!hasAction" class="idle">捨てる牌を選んでください</span>
       </template>

@@ -9,6 +9,7 @@ import { defineStore } from 'pinia';
 import { computed, ref, shallowRef } from 'vue';
 import {
   apply,
+  canExtend,
   canRedeal,
   canRiichi,
   canUseConsumable,
@@ -223,6 +224,12 @@ export const useGameStore = defineStore('game', () => {
 
   const canRedealNow = computed(() => !!kyoku.value && canRedeal(kyoku.value));
 
+  /**
+   * 祝儀を払う延長のボタンを出すか。祝儀が足りるかは問わない（押せなくして値段を知らせる）。
+   * 和了れるときは出さない（延ばすと海底が外れ、和了れなくなることがあるため）
+   */
+  const canExtendNow = computed(() => !!kyoku.value && canExtend(kyoku.value) && !winPreview.value);
+
   /** 今のツモで和了れるときの役と点数（親・本場などを掛けたあと） */
   const winPreview = computed(() => winPreviewOf(kyoku.value));
 
@@ -253,6 +260,7 @@ export const useGameStore = defineStore('game', () => {
     canHold,
     canRiichiSelected,
     canRedealNow,
+    canExtendNow,
     winPreview,
     waitsInfo,
     init,

@@ -93,8 +93,10 @@ export const EQUIPMENT: readonly EquipDef[] = [
   { id: 'meguri', name: '巡り目', description: '891・912を順子として扱う' },
 ];
 
-/** 延長札で延びる巡の数 */
+/** 延長札、または祝儀を払った延長で延びる巡の数 */
 export const EXTEND_TURNS = 3;
+/** 局の画面で祝儀を払って巡を延ばす値段（延長札より高い。前もって買わずにいつでも使えるため） */
+export const EXTEND_PRICE = 5;
 
 export interface ConsumableDef extends ItemDef<ConsumableId> {
   /** 手を変えないので、リーチ中も使える */
