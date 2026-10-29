@@ -19,6 +19,8 @@
 //     --unlocked all|none  解禁済みの役（既定 all = 巻物とお守りがすべて並ぶ）
 //     --no-buy    ショップで何も買わない（既定はお守りと設備を買う）  --no-riichi  リーチしない
 //     --gacha     ショップで福引きを回せるなら回す（runs でも使える）
+//     --rules holdSlots=1,next=4,turnsDelta=3  雀士の保留枠・ネクストを置き換え、巡数を増減する（runs でも使える）
+//     --money N   始めの祝儀を上書きする（runs でも使える）
 import { parseArgs } from 'node:util';
 import { CHARMS, EQUIPMENT, MODS, SCROLL_YAKU, SOME_COLORS } from '../dist/items.js';
 import { KIND_COUNT, tileName } from '../dist/tiles.js';
@@ -41,6 +43,8 @@ const { positionals, values } = parseArgs({
     dans: { type: 'string', default: 'all' },
     unlocked: { type: 'string', default: 'all' },
     'no-buy': { type: 'boolean', default: false },
+    rules: { type: 'string' },
+    money: { type: 'string' },
     buy: { type: 'boolean', default: false },
     gacha: { type: 'boolean', default: false },
     dye: { type: 'string' },
@@ -81,6 +85,26 @@ function target() {
   }
 }
 
+/**
+ * 雀士の始めの条件の上書き（--rules holdSlots=1,next=4,turnsDelta=3 / --money 4）。条件を変えたときの強さを比べる。
+ * 保留枠とネクストは置き換え、巡数は増減（段位と雀士の巡数の増減を残す）
+ */
+function startOverrides() {
+  const rules = values.rules
+    ? Object.fromEntries(
+        values.rules.split(',').map((kv) => {
+          const [k, v] = kv.split('=');
+          const ok = ['holdSlots', 'next'].includes(k) ? /^\d+$/.test(v ?? '') : k === 'turnsDelta' && /^-?\d+$/.test(v ?? '');
+          if (!ok) throw new Error(`--rules の ${kv} が読めない（holdSlots・next=数、turnsDelta=増減）`);
+          return [k, Number(v)];
+        }),
+      )
+    : undefined;
+  const money = values.money === undefined ? undefined : int('money');
+  if (rules || money !== undefined) console.log(`始めの条件の上書き: ${values.rules ?? ''}${money === undefined ? '' : ` 祝儀=${money}`}`);
+  return { rules, money };
+}
+
 function runs() {
   const charmIds = CHARMS.map((c) => c.id);
   const equipIds = EQUIPMENT.map((e) => e.id);
@@ -106,7 +130,7 @@ function runs() {
     else if (equip) cases.push({ name: equip.name, equipment: equip.requires ? [equip.requires, id] : [id] });
     else throw new Error(`アイテム ${id} がない（お守り: ${charmIds.join(',')} / 設備: ${equipIds.join(',')}）`);
   }
-  const opts = { runs: int('runs', 1), seed: int('seed'), riichi: !values['no-riichi'], buy: values.buy, gacha: values.gacha };
+  const opts = { runs: int('runs', 1), seed: int('seed'), riichi: !values['no-riichi'], buy: values.buy, gacha: values.gacha, ...startOverrides() };
   console.log(
     `アイテムごとに ${opts.runs} ラン（${opts.buy ? 'ショップでお守りと設備を買う' : 'ショップでは何も買わない'}${opts.gacha ? '、福引きを回す' : ''}${opts.riichi ? '' : '、リーチしない'}）`,
   );
@@ -127,7 +151,7 @@ function starts() {
   const dans = values.dans === 'all' ? DANS.map((d) => d.level) : values.dans.split(',').map(Number);
   // 解禁済みの役: all は巻物・お守りがすべて並ぶ（遊び込んだ人）、none は何も並ばない（始めたばかりの人）
   const unlockedYaku = values.unlocked === 'all' ? [...SCROLL_YAKU] : [];
-  const opts = { runs: int('runs', 1), seed: int('seed'), riichi: !values['no-riichi'], buy: !values['no-buy'], gacha: values.gacha };
+  const opts = { runs: int('runs', 1), seed: int('seed'), riichi: !values['no-riichi'], buy: !values['no-buy'], gacha: values.gacha, ...startOverrides() };
   console.log(
     `雀士と段位ごとに ${opts.runs} ラン（${opts.buy ? 'ショップでお守りと設備を買う' : 'ショップでは何も買わない'}${opts.gacha ? '、福引きを回す' : ''}、解禁 ${values.unlocked}）`,
   );

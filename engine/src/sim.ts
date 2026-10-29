@@ -30,7 +30,7 @@ import {
   type KyokuState,
   type Zone,
 } from './kyoku.js';
-import type { RunStart } from './progression.js';
+import { DEFAULT_START, runRulesFor, type RunStart } from './progression.js';
 import { createRng, mix32, nextInt } from './rng.js';
 import { WAVE_COUNT, canGacha, type RunState } from './run.js';
 import { DRAGONS, EAST, KIND_COUNT, NINES, ONES, SOUTH, WINDS, suit, type Kind } from './tiles.js';
@@ -340,6 +340,13 @@ export interface RunSimOptions {
   buy?: boolean;
   /** ショップで福引きを回せるなら回す（買い物より先に） */
   gacha?: boolean;
+  /**
+   * 雀士と段位で決まる基本ルールの上書き（雀士の始めの条件を変えたときの強さを比べるため）。
+   * 保留枠とネクストは置き換え、巡数は増減で足す（段位と雀士の巡数の増減を残すため）
+   */
+  rules?: { holdSlots?: number; next?: number; turnsDelta?: number };
+  /** 始めの祝儀の上書き */
+  money?: number;
 }
 
 export interface RunSimResult {
@@ -365,6 +372,11 @@ function shopPick(run: RunState): number {
   );
 }
 
+function overrideRules(base: BaseRules, o: NonNullable<RunSimOptions['rules']>): BaseRules {
+  const { turnsDelta = 0, ...replace } = o;
+  return { ...base, ...replace, turns: base.turns + turnsDelta };
+}
+
 /**
  * AI にランを遊ばせる。既定ではショップで何も買わず、持たせたアイテムの効き目だけを見る（buy で買わせる）。
  * 和了れる手ができたらすぐ和了り、親の和了では必ず連荘する。
@@ -380,6 +392,8 @@ export function simulateRuns(opts: RunSimOptions): RunSimResult {
     // 画面やサーバーの再生と同じ apply() で進める
     let g = createGame(seed, {
       start: opts.start,
+      base: opts.rules && overrideRules(runRulesFor(opts.start ?? DEFAULT_START).base, opts.rules),
+      money: opts.money,
       loadout: { charms: opts.charms ?? [], equipment: opts.equipment ?? [] },
       mods: opts.mods,
     });

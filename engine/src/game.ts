@@ -27,7 +27,7 @@ import type { Kind } from './tiles.js';
  * エンジンの版。同じ操作ログから違う結果になる変更（役・点数・乱数の使い方・ショップなど）をしたら 1 つ上げる。
  * サーバーは記録の版と今の版が違うログを再生で検証できない（§5.3）。
  */
-export const ENGINE_VERSION = 5;
+export const ENGINE_VERSION = 6;
 
 /** プレイヤーの操作 */
 export type GameAction =

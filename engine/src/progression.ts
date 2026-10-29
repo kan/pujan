@@ -93,6 +93,8 @@ export interface CharacterDef {
   unlockText: string;
   /** 解禁の条件を満たしたか（累計の記録で見る。解禁は progressAfter が 1 ランで 1 人ずつ行う） */
   condition: (p: Omit<Progress, 'characters'>) => boolean;
+  /** 1 局の巡数の増減（段位の増減に足す） */
+  turnsDelta?: number;
 }
 
 export const CHARACTERS: readonly CharacterDef[] = [
@@ -121,8 +123,10 @@ export const CHARACTERS: readonly CharacterDef[] = [
   {
     id: 'menzen',
     name: 'かめ',
-    description: '門前型。保留なし・ネクスト3枚。黙聴（門前が2翻）を持って始める',
-    base: { holdSlots: 0, next: 3 },
+    description: '門前型。保留なし・ネクスト4枚・1局の巡数＋3。黙聴（門前が2翻）を持って始める',
+    base: { holdSlots: 0, next: 4 },
+    // 保留がないぶん和了りにくいので、巡数で補う（段位で巡数が減っても、この分は上乗せ。docs/SPEC.md §4.6）
+    turnsDelta: 3,
     charms: ['damaten'],
     equipment: [],
     money: BASE_START_MONEY,
@@ -132,11 +136,11 @@ export const CHARACTERS: readonly CharacterDef[] = [
   {
     id: 'oya',
     name: 'ぞう',
-    description: '親番型。親父の背中（親の倍率が2倍）を持って始める。祝儀は0から',
+    description: '親番型。親父の背中（親の倍率が2倍）を持って始める。祝儀は2から',
     base: {},
     charms: ['oyaji'],
     equipment: [],
-    money: 0,
+    money: 2,
     unlockText: '南場を突破する',
     condition: (p) => p.bestWaves >= 2,
   },
@@ -148,8 +152,9 @@ export const CHARACTERS: readonly CharacterDef[] = [
     charms: [],
     equipment: ['joker'],
     money: 0,
-    unlockText: '役満で和了る',
-    condition: (p) => p.yakuWon.includes(YAKUMAN_MARK),
+    // ほかの雀士より強いボーナスの雀士なので、解禁を遅くする
+    unlockText: '全場クリアし、役満でも和了る',
+    condition: (p) => p.danCleared >= 0 && p.yakuWon.includes(YAKUMAN_MARK),
   },
 ];
 
@@ -192,7 +197,8 @@ export const DANS: readonly DanDef[] = [
   { level: 0, name: '初段', description: '縛りなし' },
   { level: 1, name: '二段', description: '場の目標点が1.5倍', targetTimes: 1.5 },
   { level: 2, name: '三段', description: '場を突破したときの祝儀が1少ない', clearBonusDelta: -1 },
-  { level: 3, name: '四段', description: '1局が11巡', turnsDelta: -1 },
+  // 雀士によって巡数が違う（かめは＋3）ので、何巡かではなく増減で書く
+  { level: 3, name: '四段', description: '1局の巡数が1少ない', turnsDelta: -1 },
   { level: 4, name: '五段', description: '場の目標点が2倍（二段の1.5倍の代わり）', targetTimes: 2 },
   // 福引きがあると品の数の縛りが弱まる（sim で全場クリア 25%→43%）ので、福引きも止める
   { level: 5, name: '雀聖', description: 'ショップの品が2つで、福引きがない', shopSize: 2, noGacha: true },
@@ -272,7 +278,7 @@ export function runRulesFor(start: RunChoice): RunRules {
   const c = characterOf(start.character);
   if (!c) throw new Error(`unknown character: ${start.character}`);
   let targetTimes = 1;
-  let turns = DEFAULT_BASE_RULES.turns;
+  let turns = DEFAULT_BASE_RULES.turns + (c.turnsDelta ?? 0);
   let clearBonus = BASE_CLEAR_BONUS;
   let shopSize = BASE_SHOP_SIZE;
   let gacha = true;

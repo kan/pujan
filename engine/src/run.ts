@@ -167,6 +167,8 @@ export interface RunOptions {
   loadout?: Loadout;
   /** 最初から当てておく牌の改造（シミュレーション用） */
   mods?: readonly { id: ModId; kind: Kind }[];
+  /** 始めの祝儀の上書き（シミュレーション用） */
+  money?: number;
 }
 
 /** 新しいラン。ルールと始めの持ち物は、始めの条件（雀士・段位）から決まる */
@@ -187,7 +189,7 @@ export function createRun(seed: number, options: RunOptions = {}): RunState {
     base,
     yakuWon: [],
     wave: 0,
-    money: rules.startMoney,
+    money: options.money ?? rules.startMoney,
     // 雀士の固有のお守りは入れない（枠に数えず売れないので、雀士から毎回求める。innateCharms）
     charms: [...(options.loadout?.charms ?? [])],
     equipment: [...rules.equipment, ...(options.loadout?.equipment ?? [])],

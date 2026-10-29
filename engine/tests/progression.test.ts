@@ -80,7 +80,11 @@ describe('雀士と段位のルール', () => {
   it('雀士で始めの条件が変わる', () => {
     const g = createGame(1, { start: { ...DEFAULT_START, character: 'menzen' } });
     expect(g.run.base.holdSlots).toBe(0);
-    expect(g.run.base.next).toBe(3);
+    expect(g.run.base.next).toBe(4);
+    // かめは巡数が 3 多い。段位で巡数が減っても上乗せになる（四段は 11 巡なので 14 巡）
+    expect(g.run.base.turns).toBe(15);
+    expect(createGame(1, { start: { ...DEFAULT_START, character: 'menzen', dan: 3 } }).run.base.turns).toBe(14);
+    expect(createGame(1, { start: { ...DEFAULT_START, character: 'oya' } }).run.money).toBe(2);
     // 固有のお守りは枠に数えないので、買ったお守りの一覧（charms）には入らない
     expect(g.run.charms).toEqual([]);
     expect(ownedCharms(g.run)).toEqual(['damaten']);
@@ -173,7 +177,15 @@ describe('解禁の状態', () => {
   it('雀士の解禁の条件', () => {
     const met = (p: Progress) => CHARACTERS.filter((c) => c.condition(p)).map((c) => c.id);
     expect(met(EMPTY_PROGRESS)).toEqual(['standard']);
-    expect(met(progress({ bestWaves: 2, yakuWon: ['門前', YAKUMAN_MARK] }))).toEqual(['standard', 'speed', 'menzen', 'oya', 'yakuman']);
+    // ねこは全場クリアし、役満でも和了ったときだけ
+    expect(met(progress({ bestWaves: 2, yakuWon: ['門前', YAKUMAN_MARK] }))).toEqual(['standard', 'speed', 'menzen', 'oya']);
+    expect(met(progress({ bestWaves: 4, danCleared: 0, yakuWon: ['門前', YAKUMAN_MARK] }))).toEqual([
+      'standard',
+      'speed',
+      'menzen',
+      'oya',
+      'yakuman',
+    ]);
   });
 
   it('雀士は 1 回のランで 1 人まで、一覧の順に解禁し、残りは次のランを終えたときに解禁する', () => {
