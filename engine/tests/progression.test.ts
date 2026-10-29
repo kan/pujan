@@ -7,7 +7,9 @@ import {
   EMPTY_PROGRESS,
   YAKUMAN_MARK,
   clampChoice,
-  isProgress,
+  characterUnlocked,
+  parseProgress,
+  withCharacters,
   makeStart,
   maxDan,
   newUnlocks,
@@ -34,7 +36,8 @@ function playRun(seed: number, start: RunStart): { final: GameState; offers: Off
   return { final: g, offers };
 }
 
-const progress = (p: Partial<Progress>): Progress => ({ ...EMPTY_PROGRESS, ...p });
+/** 解禁の状態。雀士の一覧を渡さなければ、前の形と同じく条件を満たした雀士を解禁済みにする */
+const progress = (p: Partial<Progress>): Progress => withCharacters({ yakuWon: [], bestWaves: 0, danCleared: -1, ...p });
 
 describe('雀士と段位のルール', () => {
   it('標準の雀士・初段は今までの既定と同じ', () => {
@@ -168,9 +171,25 @@ describe('解禁の状態', () => {
   });
 
   it('雀士の解禁の条件', () => {
-    const open = (p: Progress) => CHARACTERS.filter((c) => c.unlocked(p)).map((c) => c.id);
-    expect(open(EMPTY_PROGRESS)).toEqual(['standard']);
-    expect(open(progress({ bestWaves: 2, yakuWon: ['門前', YAKUMAN_MARK] }))).toEqual(['standard', 'speed', 'menzen', 'oya', 'yakuman']);
+    const met = (p: Progress) => CHARACTERS.filter((c) => c.condition(p)).map((c) => c.id);
+    expect(met(EMPTY_PROGRESS)).toEqual(['standard']);
+    expect(met(progress({ bestWaves: 2, yakuWon: ['門前', YAKUMAN_MARK] }))).toEqual(['standard', 'speed', 'menzen', 'oya', 'yakuman']);
+  });
+
+  it('雀士は 1 回のランで 1 人まで、一覧の順に解禁し、残りは次のランを終えたときに解禁する', () => {
+    // 南場まで突破し、門前でも和了ったラン（うさぎ・かめ・ぞうの条件を満たす）
+    const ended = (wave: number, yakuWon: string[]) => ({ ...createRun(1), phase: 'over' as const, wave, yakuWon });
+    let p = progressAfter(EMPTY_PROGRESS, ended(2, ['門前']));
+    expect(p.characters).toEqual(['speed']);
+    expect(characterUnlocked(p, 'menzen')).toBe(false);
+    // 次のランは東場で負けても、満たした条件は残っているので 1 人ずつ解禁される
+    // （一覧の並びは ID の順）
+    p = progressAfter(p, ended(0, []));
+    expect(p.characters).toEqual(['menzen', 'speed']);
+    p = progressAfter(p, ended(0, []));
+    expect(p.characters).toEqual(['menzen', 'oya', 'speed']);
+    // 条件を満たした雀士がもういなければ増えない
+    expect(progressAfter(p, ended(0, [])).characters).toEqual(['menzen', 'oya', 'speed']);
   });
 
   it('新しく解禁されたものを並べる', () => {
@@ -190,11 +209,14 @@ describe('解禁の状態', () => {
     expect(clampChoice(p, { character: 'oya', dan: 4 })).toEqual({ character: 'standard', dan: 1 });
   });
 
-  it('解禁の状態の形を確かめる', () => {
-    expect(isProgress(EMPTY_PROGRESS)).toBe(true);
-    expect(isProgress({ yakuWon: [1], bestWaves: 0, danCleared: -1 })).toBe(false);
-    expect(isProgress({ yakuWon: [], bestWaves: 0.5, danCleared: -1 })).toBe(false);
-    expect(isProgress(null)).toBe(false);
+  it('解禁の状態の形を確かめる。雀士の一覧がない前の形は、条件を満たした雀士を解禁済みにする', () => {
+    expect(parseProgress(EMPTY_PROGRESS)).toEqual(EMPTY_PROGRESS);
+    expect(parseProgress({ yakuWon: [1], bestWaves: 0, danCleared: -1 })).toBeNull();
+    expect(parseProgress({ yakuWon: [], bestWaves: 0.5, danCleared: -1 })).toBeNull();
+    expect(parseProgress({ ...EMPTY_PROGRESS, characters: ['nobody'] })).toBeNull();
+    expect(parseProgress(null)).toBeNull();
+    expect(parseProgress({ yakuWon: [], bestWaves: 2, danCleared: -1 })?.characters).toEqual(['oya', 'speed']);
+    expect(parseProgress({ yakuWon: [], bestWaves: 2, danCleared: -1, characters: ['speed'] })?.characters).toEqual(['speed']);
   });
 
   it('始めの条件の比較は役の並びによらない', () => {

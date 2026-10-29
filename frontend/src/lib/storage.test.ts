@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { EMPTY_PROGRESS, newLog } from '@pujan/engine';
+import { EMPTY_PROGRESS, newLog, type Progress } from '@pujan/engine';
 import { memoryStorage } from './memory-storage';
 import {
   addSentFeedback,
@@ -64,11 +64,25 @@ describe('解禁の状態と選んだ雀士', () => {
   it('保存して読み戻す。形が違えば初めの状態', () => {
     const s = memoryStorage();
     expect(loadProgress(s)).toEqual(EMPTY_PROGRESS);
-    const p = { yakuWon: ['役牌'], bestWaves: 2, danCleared: 0 };
+    const p: Progress = { yakuWon: ['役牌'], bestWaves: 2, danCleared: 0, characters: ['speed'] };
     saveProgress(s, p);
     expect(loadProgress(s)).toEqual(p);
-    s.setItem('pujan.progress.v1', JSON.stringify({ yakuWon: [1], bestWaves: 2, danCleared: 0 }));
+    s.setItem('pujan.progress.v2', JSON.stringify({ yakuWon: [1], bestWaves: 2, danCleared: 0 }));
     expect(loadProgress(s)).toEqual(EMPTY_PROGRESS);
+    s.setItem('pujan.progress.v2', JSON.stringify({ ...p, characters: ['nobody'] }));
+    expect(loadProgress(s)).toEqual(EMPTY_PROGRESS);
+    // 重なりと標準の雀士は一覧から除く
+    s.setItem('pujan.progress.v2', JSON.stringify({ ...p, characters: ['standard', 'speed', 'speed'] }));
+    expect(loadProgress(s).characters).toEqual(['speed']);
+  });
+
+  it('雀士の一覧を持たない前の形（v1）は、条件を満たした雀士を解禁済みとして読む', () => {
+    const s = memoryStorage();
+    s.setItem('pujan.progress.v1', JSON.stringify({ yakuWon: ['門前'], bestWaves: 2, danCleared: 0 }));
+    expect(loadProgress(s).characters).toEqual(['menzen', 'oya', 'speed']);
+    // v2 があれば、古い画面が v1 に書き戻したものは読まない
+    saveProgress(s, { yakuWon: ['門前'], bestWaves: 2, danCleared: 0, characters: ['speed'] });
+    expect(loadProgress(s).characters).toEqual(['speed']);
   });
 
   it('知らない雀士や範囲の外の段位は既定に戻す', () => {

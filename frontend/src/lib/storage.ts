@@ -7,7 +7,7 @@
  */
 import {
   EMPTY_PROGRESS,
-  isProgress,
+  parseProgress,
   isRunChoice,
   isRunStart,
   type Progress,
@@ -26,7 +26,12 @@ const RUN_ID_KEY = 'pujan.run-id.v1';
 const PENDING_KEY = 'pujan.pending.v1';
 const SETTLED_KEY = 'pujan.settled.v1';
 const TUTORIAL_KEY = 'pujan.tutorial-seen.v1';
-const PROGRESS_KEY = 'pujan.progress.v1';
+/**
+ * 解禁の状態。v2 から雀士の一覧（characters）を持つ。v1 は一覧を持たない前の形で、v2 がないときだけ読む
+ * （キャッシュに残った古い画面が v1 に一覧なしで書き戻しても、v2 の一覧を失わないように分ける）
+ */
+const PROGRESS_KEY = 'pujan.progress.v2';
+const LEGACY_PROGRESS_KEY = 'pujan.progress.v1';
 const CHOICE_KEY = 'pujan.choice.v1';
 const SENT_FEEDBACK_KEY = 'pujan.sent-feedback.v1';
 
@@ -132,8 +137,8 @@ export function saveTutorialSeen(storage: KeyValueStorage | null): void {
  * （ランキングに載るランの始めの条件は、サーバーの記録で決まる）
  */
 export function loadProgress(storage: KeyValueStorage | null): Progress {
-  const v = read(storage, PROGRESS_KEY);
-  return isProgress(v) ? v : EMPTY_PROGRESS;
+  // v1（雀士の一覧を持たない前の形）は parseProgress が今の形にする
+  return parseProgress(read(storage, PROGRESS_KEY) ?? read(storage, LEGACY_PROGRESS_KEY)) ?? EMPTY_PROGRESS;
 }
 
 export function saveProgress(storage: KeyValueStorage | null, p: Progress): void {

@@ -234,7 +234,7 @@ describe('ランキングに載せるラン', () => {
 
   it('選んだ雀士と段位で始め、次のランの準備のために覚える', async () => {
     server.online = true;
-    server.progress = { yakuWon: ['役牌'], bestWaves: 2, danCleared: 0 };
+    server.progress = { yakuWon: ['役牌'], bestWaves: 2, danCleared: 0, characters: ['oya', 'speed'] };
     const store = useGameStore();
     await store.init();
     await store.startRun({ character: 'oya', dan: 1 });
@@ -266,6 +266,6 @@ describe('ランキングに載せるラン', () => {
     expect(store.unlocks).toBeNull();
     playToEnd(store);
     expect(store.unlocks).not.toBeNull();
-    expect(storage.data.has('pujan.progress.v1')).toBe(true);
+    expect(storage.data.has('pujan.progress.v2')).toBe(true);
   });
 });

@@ -106,7 +106,7 @@ export async function finishRun(
       `SELECT r.account_id, r.seed, r.engine_version, r.start, r.started_at, r.finished_at, r.waves_cleared, r.total_score,
          (SELECT id FROM runs WHERE account_id = r.account_id ORDER BY started_at DESC, id DESC LIMIT 1) AS latest_id,
          EXISTS (SELECT 1 FROM weekly_best WHERE account_id = r.account_id AND run_id = r.id) AS is_best,
-         p.yaku_won, p.best_waves, p.dan_cleared
+         p.yaku_won, p.best_waves, p.dan_cleared, p.characters
        FROM runs r LEFT JOIN progress p ON p.account_id = r.account_id WHERE r.id = ?`,
     )
     .bind(runId)

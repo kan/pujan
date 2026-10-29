@@ -87,6 +87,8 @@ const items = computed(() => [
           <span class="text">
             <b>{{ c.name }}</b>
             <span v-if="unlocked(c.id)" class="note">{{ c.description }}</span>
+            <!-- 条件を満たしても、解禁は 1 回のランで 1 人まで（残りは次のランを終えたとき） -->
+            <span v-else-if="c.condition(account.progress)" class="note">🔒 条件は満たしました。次のランを終えると解禁（1回のランで1人まで）</span>
             <span v-else class="note">🔒 {{ c.unlockText }}と解禁</span>
           </span>
         </button>

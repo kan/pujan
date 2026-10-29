@@ -35,20 +35,43 @@ export interface Progress {
   bestWaves: number;
   /** 全場クリアしたいちばん高い段位（-1 はまだ） */
   danCleared: number;
+  /**
+   * 解禁した雀士（標準の雀士は入れない。最初から選べる）。条件を満たしても、1 回のランで解禁するのは 1 人まで
+   * （progressAfter）なので、条件からは求めずに持つ
+   */
+  characters: CharacterId[];
 }
 
-export const EMPTY_PROGRESS: Progress = { yakuWon: [], bestWaves: 0, danCleared: -1 };
+export const EMPTY_PROGRESS: Progress = { yakuWon: [], bestWaves: 0, danCleared: -1, characters: [] };
 
-/** 解禁の状態の形が正しいか（端末に保存したものは信頼できない入力なので、読むときに確かめる） */
-export function isProgress(v: unknown): v is Progress {
+/** 雀士の一覧（characters）を持つ前の解禁の状態。端末と D1 に残っている */
+export type LegacyProgress = Omit<Progress, 'characters'> & { characters?: CharacterId[] };
+
+/**
+ * 雀士の一覧を持たない記録を、今の形にする。1 ランで 1 人の規則より前に解禁されていた雀士（条件を満たしている雀士）は
+ * 全員そのまま解禁済みにする（選べていた雀士を選べなくしないため）
+ */
+export function withCharacters(p: LegacyProgress): Progress {
+  const list = p.characters ?? CHARACTERS.filter((c) => c.condition(p)).map((c) => c.id);
+  // 重なりと標準の雀士（一覧に入れない）を除き、ID の順にそろえる（端末に保存したものは信頼できない入力）
+  return { ...p, characters: [...new Set(list)].filter((id) => id !== DEFAULT_START.character).sort() };
+}
+
+/**
+ * 端末に保存した解禁の状態を読む。信頼できない入力なので形を確かめ、正しくなければ null。
+ * 雀士の一覧がない前の形は withCharacters で今の形にする
+ */
+export function parseProgress(v: unknown): Progress | null {
   const p = v as Partial<Progress> | null;
-  return (
+  const ok =
     !!p &&
     Array.isArray(p.yakuWon) &&
     p.yakuWon.every((y) => typeof y === 'string') &&
     Number.isInteger(p.bestWaves) &&
-    Number.isInteger(p.danCleared)
-  );
+    Number.isInteger(p.danCleared) &&
+    (p.characters === undefined ||
+      (Array.isArray(p.characters) && p.characters.every((id) => !!characterOf(id))));
+  return ok ? withCharacters(p as LegacyProgress) : null;
 }
 
 /* ---------- 雀士 ---------- */
@@ -68,7 +91,8 @@ export interface CharacterDef {
   money: number;
   /** 解禁の条件（画面に出す） */
   unlockText: string;
-  unlocked: (p: Progress) => boolean;
+  /** 解禁の条件を満たしたか（累計の記録で見る。解禁は progressAfter が 1 ランで 1 人ずつ行う） */
+  condition: (p: Omit<Progress, 'characters'>) => boolean;
 }
 
 export const CHARACTERS: readonly CharacterDef[] = [
@@ -81,7 +105,7 @@ export const CHARACTERS: readonly CharacterDef[] = [
     equipment: [],
     money: BASE_START_MONEY,
     unlockText: '最初から',
-    unlocked: () => true,
+    condition: () => true,
   },
   {
     id: 'speed',
@@ -92,7 +116,7 @@ export const CHARACTERS: readonly CharacterDef[] = [
     equipment: [],
     money: BASE_START_MONEY,
     unlockText: '東場を突破する',
-    unlocked: (p) => p.bestWaves >= 1,
+    condition: (p) => p.bestWaves >= 1,
   },
   {
     id: 'menzen',
@@ -103,7 +127,7 @@ export const CHARACTERS: readonly CharacterDef[] = [
     equipment: [],
     money: BASE_START_MONEY,
     unlockText: '門前で和了る',
-    unlocked: (p) => p.yakuWon.includes('門前'),
+    condition: (p) => p.yakuWon.includes('門前'),
   },
   {
     id: 'oya',
@@ -114,7 +138,7 @@ export const CHARACTERS: readonly CharacterDef[] = [
     equipment: [],
     money: 0,
     unlockText: '南場を突破する',
-    unlocked: (p) => p.bestWaves >= 2,
+    condition: (p) => p.bestWaves >= 2,
   },
   {
     id: 'yakuman',
@@ -125,7 +149,7 @@ export const CHARACTERS: readonly CharacterDef[] = [
     equipment: ['joker'],
     money: 0,
     unlockText: '役満で和了る',
-    unlocked: (p) => p.yakuWon.includes(YAKUMAN_MARK),
+    condition: (p) => p.yakuWon.includes(YAKUMAN_MARK),
   },
 ];
 
@@ -139,8 +163,9 @@ export const characterName = (id: string): string => characterOf(id)?.name ?? id
 export const startLabel = (s: { character: string; dan: number }): string =>
   `${characterName(s.character)}・${danName(s.dan)}`;
 
-/** 雀士が選べるか（解禁済みか） */
-export const characterUnlocked = (p: Progress, id: string): boolean => !!characterOf(id)?.unlocked(p);
+/** 雀士が選べるか（解禁済みか。標準の雀士は最初から選べる） */
+export const characterUnlocked = (p: Progress, id: string): boolean =>
+  id === DEFAULT_START.character || p.characters.includes(id as CharacterId);
 
 /* ---------- 段位 ---------- */
 
@@ -289,16 +314,24 @@ export function mergeProgress(a: Progress, b: Progress): Progress {
     yakuWon: [...new Set([...a.yakuWon, ...b.yakuWon])].sort(),
     bestWaves: Math.max(a.bestWaves, b.bestWaves),
     danCleared: Math.max(a.danCleared, b.danCleared),
+    // 並びは ID の順（backend の upsertProgress の ORDER BY と同じ）
+    characters: [...new Set([...a.characters, ...b.characters])].sort(),
   };
 }
 
-/** 終わったランを数えた、新しい解禁の状態 */
+/**
+ * 終わったランを数えた、新しい解禁の状態。雀士は、条件を満たしてまだ解禁していない雀士のうち、
+ * 一覧（CHARACTERS）の順で最初の 1 人だけを解禁する。残りは次のランを終えたときに 1 人ずつ解禁する
+ */
 export function progressAfter(p: Progress, run: RunState): Progress {
-  return mergeProgress(p, {
+  const merged = mergeProgress(p, {
     yakuWon: run.yakuWon,
     bestWaves: runSummary(run).wavesCleared,
     danCleared: run.phase === 'cleared' ? run.start.dan : -1,
+    characters: [],
   });
+  const next = CHARACTERS.find((c) => !characterUnlocked(merged, c.id) && c.condition(merged));
+  return next ? mergeProgress(merged, { ...EMPTY_PROGRESS, characters: [next.id] }) : merged;
 }
 
 /** 新しく解禁されたもの（画面に出す） */
@@ -313,7 +346,7 @@ export interface NewUnlocks {
 export function newUnlocks(before: Progress, after: Progress): NewUnlocks {
   const scrollsBefore = scrollYakuAvailable(before.yakuWon);
   return {
-    characters: CHARACTERS.filter((c) => !c.unlocked(before) && c.unlocked(after)).map((c) => c.id),
+    characters: CHARACTERS.filter((c) => !characterUnlocked(before, c.id) && characterUnlocked(after, c.id)).map((c) => c.id),
     dans: DANS.filter((d) => d.level > maxDan(before) && d.level <= maxDan(after)).map((d) => d.level),
     scrolls: scrollYakuAvailable(after.yakuWon).filter((y) => !scrollsBefore.includes(y)),
     charms: CHARMS.filter((c) => !charmAvailable(c.id, before.yakuWon) && charmAvailable(c.id, after.yakuWon)).map(

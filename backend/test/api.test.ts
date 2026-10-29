@@ -207,7 +207,7 @@ describe('引き継ぎ（雀士・段位・役の解禁）', () => {
 
   it('はじめは何も解禁されていない。まだ選べない雀士や段位では始められない', async () => {
     const user = await newUser();
-    expect(await me(user)).toEqual({ yakuWon: [], bestWaves: 0, danCleared: -1 });
+    expect(await me(user)).toEqual({ yakuWon: [], bestWaves: 0, danCleared: -1, characters: [] });
     expect((await post('/api/runs', user, { character: 'speed', dan: 0 })).status).toBe(403);
     expect((await post('/api/runs', user, { character: 'standard', dan: 1 })).status).toBe(403);
     expect((await post('/api/runs', user, { character: 'standard', dan: 'x' })).status).toBe(400);
@@ -226,8 +226,19 @@ describe('引き継ぎ（雀士・段位・役の解禁）', () => {
     expect(next.start.unlockedYaku).toEqual(body.progress.yakuWon);
   });
 
-  it('解禁は減らない（記録の悪いランのあとも残る）', async () => {
+  it('雀士の一覧がない前の行は、読んだときに求めた一覧を書き戻す', async () => {
     const user = await newUser();
+    await env.DB.prepare('INSERT INTO progress (account_id, yaku_won, best_waves, dan_cleared, updated_at) VALUES (?, ?, ?, ?, ?)')
+      .bind(user.id, JSON.stringify([]), 1, -1, 1)
+      .run();
+    expect((await me(user)).characters).toEqual(['speed']);
+    const row = await env.DB.prepare('SELECT characters FROM progress WHERE account_id = ?').bind(user.id).first<{ characters: string }>();
+    expect(JSON.parse(row!.characters)).toEqual(['speed']);
+  });
+
+  it('解禁は減らない（記録の悪いランのあとも残る）。雀士の一覧がない前の行は、条件を満たした雀士を解禁済みにする', async () => {
+    const user = await newUser();
+    // characters の列がない（NULL の）前の行。南場まで突破しているので、うさぎとぞうを選べていた。読むと一覧を書き戻す
     await env.DB.prepare('INSERT INTO progress (account_id, yaku_won, best_waves, dan_cleared, updated_at) VALUES (?, ?, ?, ?, ?)')
       .bind(user.id, JSON.stringify(['プチ国士']), 4, 2, 1)
       .run();
@@ -238,6 +249,10 @@ describe('引き継ぎ（雀士・段位・役の解禁）', () => {
     expect(p.bestWaves).toBe(4);
     expect(p.danCleared).toBeGreaterThanOrEqual(2);
     expect([...p.yakuWon].sort()).toEqual(p.yakuWon);
+    expect(p.characters).toEqual(expect.arrayContaining(['speed', 'oya']));
+    // 書き戻した行には一覧が入る
+    const row = await env.DB.prepare('SELECT characters FROM progress WHERE account_id = ?').bind(user.id).first<{ characters: string }>();
+    expect(JSON.parse(row!.characters)).toEqual(expect.arrayContaining(['speed', 'oya']));
   });
 });
 
