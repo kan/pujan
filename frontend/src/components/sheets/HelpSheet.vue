@@ -18,6 +18,7 @@ import {
   notenPenalty,
 } from '@pujan/engine';
 import { SCORE_TABLE, YAKU_TABS } from '@/lib/help';
+import { GACHA_TEXT } from '@/lib/labels';
 import { GUIDE_PAGES } from '@/lib/tutorial';
 import MjTile from '../MjTile.vue';
 import SheetLayer from '../SheetLayer.vue';
@@ -59,6 +60,21 @@ const ITEM_SECTIONS = [
     rows: plain(CONSUMABLES),
   },
   { title: '牌の改造（山の構成を変える。ランの間ずっと残る）', rows: plain(MODS) },
+  {
+    title: '福引き（ショップで1回だけ回せる）',
+    rows: [
+      {
+        name: '福引き',
+        tag: '',
+        description: GACHA_TEXT,
+      },
+      {
+        name: '福引き券',
+        tag: '',
+        description: '場を突破したときと、金牌を使って和了ったときに1枚もらえる。祝儀の代わりに使って福引きを回せる（はずれでも祝儀は戻らない）',
+      },
+    ],
+  },
   { title: 'ボス（各場の4局目の縛り）', rows: plain(BOSSES) },
 ];
 

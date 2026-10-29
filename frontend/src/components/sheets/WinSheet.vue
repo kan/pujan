@@ -1,7 +1,17 @@
 <script setup lang="ts">
 /** 和了（docs/SPEC.md §2.3）。和了牌、点数の内訳、祝儀。親の和了では「和了やめ」「連荘する」を選ぶ */
 import { computed } from 'vue';
-import { GOLD_MONEY, allTiles, byKind, doraOf, isDealerKyoku, moneyForWin, notenPenalty, tileName } from '@pujan/engine';
+import {
+  GOLD_MONEY,
+  allTiles,
+  byKind,
+  doraOf,
+  isDealerKyoku,
+  moneyForWin,
+  notenPenalty,
+  ticketsForWin,
+  tileName,
+} from '@pujan/engine';
 import { useGameStore } from '@/stores/game';
 import { settleLabel } from '@/lib/labels';
 import MjTile from '../MjTile.vue';
@@ -28,6 +38,8 @@ const tiles = computed(() => {
     .sort(byKind);
 });
 const dealer = computed(() => isDealerKyoku(store.run));
+/** この和了でもらう福引き券（精算の前のランから求める） */
+const tickets = computed(() => ticketsForWin(store.run, result.value));
 const honba = computed(() => store.run.round.honba);
 const ura = computed(() =>
   result.value.ura.map((t) => ({ tile: t, dora: tileName(doraOf(t.kind)) })),
@@ -49,6 +61,7 @@ const ura = computed(() =>
         <span class="sub">うち金牌{{ result.gold }}枚</span><span class="sub">+{{ result.gold * GOLD_MONEY }}</span>
       </template>
     </div>
+    <p v-if="tickets" class="note">金牌で和了ったので、福引き券を{{ tickets }}枚もらえます。</p>
     <p v-if="k.riichi" class="note">
       <template v-if="ura.length">
         裏ドラ表示

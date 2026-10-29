@@ -125,6 +125,14 @@ function stats() {
       .sort((a, b) => b[1].bought / b[1].shown - a[1].bought / a[1].shown)
       .map(([k, s]) => [k, s.shown, s.bought, pct(s.bought, s.shown)]),
   );
+  const gachaTotal = Object.values(t.gacha).reduce((a, n) => a + n, 0);
+  table(
+    `福引きの景品（${gachaTotal} 回）`,
+    ['景品', '回', '割合'],
+    Object.entries(t.gacha)
+      .sort((a, b) => b[1] - a[1])
+      .map(([k, n]) => [k, n, pct(n, gachaTotal)]),
+  );
 }
 
 function feedback() {

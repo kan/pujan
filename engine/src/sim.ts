@@ -7,7 +7,7 @@
  *
  * CLI（scripts/sim.mjs）とテストから使う。frontend からは使わないので index.ts からは出さない。
  */
-import { apply, createGame, isFinished } from './game.js';
+import { apply, createGame, isFinished, type GameAction } from './game.js';
 import { evaluateFive, type HandRules } from './hand.js';
 import {
   DEFAULT_BASE_RULES,
@@ -32,7 +32,7 @@ import {
 } from './kyoku.js';
 import type { RunStart } from './progression.js';
 import { createRng, mix32, nextInt } from './rng.js';
-import { WAVE_COUNT, type RunState } from './run.js';
+import { WAVE_COUNT, canGacha, type RunState } from './run.js';
 import { DRAGONS, EAST, KIND_COUNT, NINES, ONES, SOUTH, WINDS, suit, type Kind } from './tiles.js';
 
 /* ---------- 目標の形 ---------- */
@@ -338,6 +338,8 @@ export interface RunSimOptions {
   start?: RunStart;
   /** ショップで買えるお守りと設備を買う（既定は何も買わない） */
   buy?: boolean;
+  /** ショップで福引きを回せるなら回す（買い物より先に） */
+  gacha?: boolean;
 }
 
 export interface RunSimResult {
@@ -386,7 +388,9 @@ export function simulateRuns(opts: RunSimOptions): RunSimResult {
       if (actions > 100000) throw new Error(`run ${i} did not finish`);
       if (!g.kyoku) {
         const pick = opts.buy ? shopPick(g.run) : -1;
-        g = apply(g, pick >= 0 ? { type: 'buy', index: pick } : { type: 'leave' });
+        const shop: GameAction =
+          opts.gacha && canGacha(g.run) ? { type: 'gacha' } : pick >= 0 ? { type: 'buy', index: pick } : { type: 'leave' };
+        g = apply(g, shop);
       } else if (!g.kyoku.result) {
         g = apply(g, botAction(g.kyoku, { target: '和了形', riichi: opts.riichi ?? true }));
       } else {

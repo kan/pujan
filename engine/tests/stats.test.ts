@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { ENGINE_VERSION, apply, createGame, isFinished, newLog, replay, type GameAction, type RunLog } from '../src/game.js';
 import { MAX_CHARMS } from '../src/items.js';
 import { DEFAULT_START } from '../src/progression.js';
-import { runSummary } from '../src/run.js';
+import { canGacha, runSummary } from '../src/run.js';
 import { botAction } from '../src/sim.js';
 import { aggregate, analyzeRun } from '../src/stats.js';
 
@@ -20,6 +20,8 @@ function playedLog(seed: number, maxActions = Infinity): RunLog {
     else if (g.kyoku) {
       act({ type: 'settle', renchan: true });
       rerolled = false;
+    } else if (canGacha(g.run)) {
+      act({ type: 'gacha' });
     } else {
       const i = g.run.shop!.findIndex((o) => !o.sold && o.price <= g.run.money && (o.kind === 'charm' || o.kind === 'equip'));
       if (i >= 0 && g.run.charms.length < MAX_CHARMS) act({ type: 'buy', index: i });
@@ -45,6 +47,9 @@ describe('プレイの集計', () => {
     expect(s.shown.length % 3).toBe(0);
     expect(s.shown.length / 3).toBeGreaterThan(log.actions.filter((a) => a.type === 'reroll').length);
     for (const b of s.bought) expect(s.shown).toContain(b);
+    // 福引きは回した回数ぶん、景品かはずれを数える
+    expect(s.gacha?.length).toBe(log.actions.filter((a) => a.type === 'gacha').length);
+    expect(s.gacha?.length).toBeGreaterThan(0);
     // ラン終了なら負けた場のボスが分かる
     expect(s.lostBoss === null).toBe(s.wavesCleared === 4);
   });
@@ -68,5 +73,11 @@ describe('プレイの集計', () => {
     expect(total.kyoku).toBe(runs.reduce((a, r) => a + r.kyoku, 0));
     const bought = Object.values(total.shop).reduce((a, s) => a + s.bought, 0);
     expect(bought).toBe(runs.reduce((a, r) => a + r.bought.length, 0));
+    const gacha = Object.values(total.gacha).reduce((a, n) => a + n, 0);
+    expect(gacha).toBe(runs.reduce((a, r) => a + (r.gacha?.length ?? 0), 0));
+    // 福引きを足す前に記録したラン（gacha の欄がない）も合計できる
+    const { gacha: _omit, ...old } = runs[0];
+    void _omit;
+    expect(aggregate([old]).gacha).toEqual({});
   });
 });

@@ -4,7 +4,9 @@ import {
   CHARMS,
   CONSUMABLES,
   EQUIPMENT,
+  GACHA,
   KYOKU_PER_WAVE,
+  OFFER_KIND_LABEL,
   MODS,
   WAVE_COUNT,
   WIND_NAMES,
@@ -33,6 +35,11 @@ export const charmDef = (id: CharmId) => CHARMS.find((c) => c.id === id)!;
 export const equipDef = (id: EquipId) => EQUIPMENT.find((c) => c.id === id)!;
 export const consumableDef = (id: ConsumableId) => CONSUMABLES.find((c) => c.id === id)!;
 export const bossDef = (id: BossId) => BOSSES.find((c) => c.id === id)!;
+
+/** 福引きの説明（ショップとヘルプで同じ文を使う） */
+export const GACHA_TEXT = `祝儀${GACHA.price}で、${(Object.keys(GACHA.weights) as (keyof typeof GACHA.weights)[])
+  .map((k) => OFFER_KIND_LABEL[k])
+  .join('・')}のどれかが当たる（牌の改造は出ない）。はずれ（${GACHA.missRate * 100}%）は祝儀${GACHA.missRefund}が戻る`;
 
 /** 新しく解禁されたものを 1 行ずつ（「雀士「うさぎ」」「役の巻物「混一色」」） */
 export function unlockLines(u: NewUnlocks): string[] {

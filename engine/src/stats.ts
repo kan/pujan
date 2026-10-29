@@ -22,7 +22,12 @@ export interface RunStats {
   /** ショップに並んだ品（並んだ回数ぶん） */
   shown: string[];
   bought: string[];
+  /** 福引きの景品（回した回数ぶん。はずれは GACHA_MISS）。福引きを足す前に記録したランには無い */
+  gacha?: string[];
 }
+
+/** 集計での福引きのはずれの名前 */
+export const GACHA_MISS = 'はずれ';
 
 /**
  * 操作ログを再生し、最後の状態と、数えたもの（ランが終わっていなければ null）を返す。
@@ -30,11 +35,15 @@ export interface RunStats {
  * 版が違う・再生できないログは replay() と同じく例外を投げる
  */
 export function replayWithStats(log: RunLog): { game: GameState; stats: RunStats | null } {
-  const s = { kyoku: 0, wins: 0, yaku: [] as string[], shown: [] as string[], bought: [] as string[] };
+  const s = { kyoku: 0, wins: 0, yaku: [] as string[], shown: [] as string[], bought: [] as string[], gacha: [] as string[] };
   const g = replay(log, (before, action, after) => {
     if (action.type === 'buy') {
       const offer = before.run.shop?.[action.index];
       if (offer) s.bought.push(offerName(offer));
+    }
+    if (action.type === 'gacha') {
+      const prize = after.run.gacha!.prize;
+      s.gacha.push(prize ? offerName(prize) : GACHA_MISS);
     }
     const result = action.type === 'settle' ? before.kyoku?.result : null;
     if (result) {
@@ -86,6 +95,8 @@ export interface PlayStats {
   yaku: Record<string, number>;
   /** 品ごとの、並んだ回数と買われた回数 */
   shop: Record<string, { shown: number; bought: number }>;
+  /** 福引きの景品ごとの数（はずれは GACHA_MISS） */
+  gacha: Record<string, number>;
 }
 
 const bump = (m: Record<string, number>, k: string) => {
@@ -102,6 +113,7 @@ export function aggregate(runs: readonly RunStats[]): PlayStats {
     wins: 0,
     yaku: {},
     shop: {},
+    gacha: {},
   };
   for (const r of runs) {
     const s = (out.byStart[r.start] ??= { runs: 0, cleared: 0, waves: 0 });
@@ -115,6 +127,7 @@ export function aggregate(runs: readonly RunStats[]): PlayStats {
     for (const y of r.yaku) bump(out.yaku, y);
     for (const name of r.shown) (out.shop[name] ??= { shown: 0, bought: 0 }).shown++;
     for (const name of r.bought) (out.shop[name] ??= { shown: 0, bought: 0 }).bought++;
+    for (const name of r.gacha ?? []) bump(out.gacha, name);
   }
   return out;
 }

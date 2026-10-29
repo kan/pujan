@@ -7,19 +7,23 @@
 import { computed, ref } from 'vue';
 import {
   ALL_KINDS,
+  GACHA,
   MAX_CHARMS,
   MAX_CONSUMABLES,
   REROLL_PRICE,
   SELL_PRICES,
   buyBlocker,
+  canGacha,
   canModify,
+  gachaRefund,
+  hasGacha,
   type BuyBlocker,
   type GameAction,
   type Kind,
 } from '@pujan/engine';
 import { useGameStore } from '@/stores/game';
 import { OFFER_KIND_LABEL } from '@pujan/engine';
-import { charmDef, compositionText, consumableDef, equipDef, modifiedKinds, offerText } from '@/lib/labels';
+import { GACHA_TEXT, charmDef, compositionText, consumableDef, equipDef, modifiedKinds, offerText } from '@/lib/labels';
 import MjTile from '../MjTile.vue';
 import SheetLayer from '../SheetLayer.vue';
 
@@ -63,6 +67,16 @@ function pick(kind: Kind) {
   act({ type: 'buy', index: picking.value, target: kind });
   picking.value = null;
 }
+
+const gachaOk = computed(() => canGacha(run.value));
+/** 福引きで当たった品の名前と説明。役の巻物はもう受け取ったので、受け取る前のレベルから名前を作る */
+const prize = computed(() => {
+  const p = run.value.gacha?.prize;
+  if (!p) return null;
+  const levels = run.value.yakuLevels;
+  const before = p.kind === 'scroll' ? { ...levels, [p.yaku]: (levels[p.yaku] ?? 1) - 1 } : levels;
+  return { ...p, ...offerText(p, before) };
+});
 
 const comp = computed(() => run.value.composition);
 const modified = computed(() => modifiedKinds(run.value));
@@ -110,6 +124,29 @@ const equipNames = computed(() => run.value.equipment.map((id) => equipDef(id).n
           {{ o.sold ? '購入済み' : `買う ${o.price}` }}
         </button>
       </div>
+    </div>
+    <div v-if="hasGacha(run)" class="card gacha">
+      <div class="ct">
+        <span class="ty">福引き</span>
+        <b v-if="!run.gacha">何が当たるかはお楽しみ</b>
+        <b v-else-if="prize">当たり！ {{ OFFER_KIND_LABEL[prize.kind] }}「{{ prize.name }}」</b>
+        <b v-else>はずれ</b>
+      </div>
+      <p v-if="!run.gacha">
+        {{ GACHA_TEXT }}。ショップごとに1回。
+        <template v-if="run.gachaTickets">福引き券 {{ run.gachaTickets }}枚（先に使う）</template>
+      </p>
+      <p v-else-if="prize">{{ prize.description }}</p>
+      <p v-else>{{ run.gacha.ticket ? '福引き券で回したので、祝儀は戻りません。' : `祝儀${gachaRefund(run.gacha)}が戻りました。` }}</p>
+      <button
+        class="btn"
+        :class="{ buy: gachaOk }"
+        type="button"
+        :disabled="!gachaOk"
+        @click="act({ type: 'gacha' })"
+      >
+        {{ run.gacha ? '回した' : run.gachaTickets ? '券で回す' : `回す ${GACHA.price}` }}
+      </button>
     </div>
     <div class="actions">
       <button class="btn" type="button" :disabled="run.money < REROLL_PRICE" @click="act({ type: 'reroll' })">

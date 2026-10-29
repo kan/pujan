@@ -1,12 +1,17 @@
 import { describe, expect, it } from 'vitest';
 import { ENGINE_VERSION, apply, createGame, isFinished, newLog, replay, type GameAction, type GameState, type RunLog } from '../src/game.js';
-import { SELL_PRICES } from '../src/items.js';
-import { buyBlocker, canModify, runSummary } from '../src/run.js';
+import { GACHA, SELL_PRICES } from '../src/items.js';
+import type { KyokuResult } from '../src/kyoku.js';
+import { createRng, mix32 } from '../src/rng.js';
+import { buyBlocker, canGacha, canModify, createRun, gachaRefund, runSummary, settleKyoku } from '../src/run.js';
 import { botAction } from '../src/sim.js';
 import { KIND_COUNT } from '../src/tiles.js';
 
-/** AI に 1 ランを遊ばせ、操作ログを残す。ショップでは買えるものを買い、牌の改造は最初に選べる牌に使う */
-function playLogged(seed: number, maxActions = 5000): { log: RunLog; final: GameState } {
+/**
+ * AI に 1 ランを遊ばせ、操作ログを残す。ショップでは買えるものを買い、牌の改造は最初に選べる牌に使う。
+ * gacha なら、ショップで福引きを回せるときは先に回す
+ */
+function playLogged(seed: number, maxActions = 5000, gacha = false): { log: RunLog; final: GameState } {
   const log = newLog(seed);
   let g = createGame(seed);
   const act = (a: GameAction) => {
@@ -29,6 +34,8 @@ function playLogged(seed: number, maxActions = 5000): { log: RunLog; final: Game
       act(botAction(kyoku, { target: '和了形', riichi: true }));
     } else if (kyoku) {
       act({ type: 'settle', renchan: true });
+    } else if (gacha && canGacha(run)) {
+      act({ type: 'gacha' });
     } else {
       const i = run.shop!.findIndex((o) => !o.sold && o.price <= run.money);
       const o = run.shop![i];
@@ -150,6 +157,100 @@ describe('操作ログと再生', () => {
     const sold = apply(full, { type: 'sellConsumable', index: 0 });
     expect(buyBlocker(sold.run, 0)).toBeNull();
     expect(apply(sold, { type: 'buy', index: 0 }).run.consumables).toEqual(['hiroi', 'nozoki']);
+  });
+
+  describe('福引き', () => {
+    it('福引きを含むログを再生すると同じ最後の状態になる', { timeout: 20_000 }, () => {
+      const { log, final } = playLogged(1, 5000, true);
+      expect(log.actions.some((a) => a.type === 'gacha')).toBe(true);
+      expect(replay(log)).toEqual(final);
+    });
+
+    function shopGame(): GameState {
+      let g = createGame(3);
+      while (g.kyoku) g = apply(g, g.kyoku.result ? { type: 'settle' } : botAction(g.kyoku, { target: '和了形' }));
+      return g;
+    }
+
+    it('祝儀を払って回し、当たりは持ち物に入る。はずれは祝儀が戻る。ショップごとに 1 回まで', () => {
+      const g = shopGame();
+      let prizes = 0;
+      let misses = 0;
+      for (let seed = 1; seed <= 200; seed++) {
+        const before = { ...g.run, rng: createRng(mix32(seed)), money: 10, gachaTickets: 0, charms: [], consumables: [] };
+        const after = apply({ ...g, run: before }, { type: 'gacha' }).run;
+        const result = after.gacha!;
+        expect(result.ticket).toBe(false);
+        if (result.prize) {
+          prizes++;
+          expect(after.money).toBe(10 - GACHA.price);
+          const owned = after.charms.length + after.consumables.length + after.equipment.length - before.equipment.length;
+          const leveled = Object.values(after.yakuLevels).reduce((a, n) => a + n, 0);
+          expect(owned + leveled).toBe(1);
+        } else {
+          misses++;
+          expect(after.money).toBe(10 - GACHA.price + GACHA.missRefund);
+        }
+        expect(canGacha(after)).toBe(false);
+        expect(() => apply({ ...g, run: after }, { type: 'gacha' })).toThrow();
+      }
+      // はずれは 3 割ほど
+      expect(misses / 200).toBeGreaterThan(0.2);
+      expect(misses / 200).toBeLessThan(0.4);
+      expect(prizes).toBeGreaterThan(0);
+    });
+
+    it('福引き券があれば祝儀を払わずに回し、はずれでも祝儀は戻らない', () => {
+      const g = shopGame();
+      for (let seed = 1; seed <= 50; seed++) {
+        const after = apply({ ...g, run: { ...g.run, rng: createRng(mix32(seed)), money: 0, gachaTickets: 2 } }, { type: 'gacha' }).run;
+        expect(after.gachaTickets).toBe(1);
+        expect(after.gacha).toMatchObject({ ticket: true });
+        expect(gachaRefund(after.gacha!)).toBe(0);
+        expect(after.money).toBe(0);
+      }
+      expect(canGacha({ ...g.run, money: GACHA.price - 1, gachaTickets: 0 })).toBe(false);
+    });
+
+    it('雀聖では福引きを回せず、福引き券ももらえない', () => {
+      const g = shopGame();
+      const top = { ...g.run, start: { ...g.run.start, dan: 5 }, money: 10, gachaTickets: 1 };
+      expect(canGacha(top)).toBe(false);
+      expect(canGacha({ ...top, start: { ...top.start, dan: 4 } })).toBe(true);
+      const last = { ...createRun(1, { start: { ...g.run.start, dan: 5 } }) };
+      const cleared = settleKyoku(
+        { ...last, round: { ...last.round, kyoku: 3, score: 999999 } },
+        { type: 'draw', tenpai: false, fee: 0, penalty: 0, stickLost: 0 },
+      );
+      expect(cleared.lastWaveBonus?.tickets).toBe(0);
+      expect(cleared.gachaTickets).toBe(0);
+    });
+
+    it('受け取れない品は当たらない（枠がいっぱい・持っている・棚に並んでいる）', () => {
+      const g = shopGame();
+      const charms = ['hayazashi', 'yasude', 'damaten', 'ippatsuya', 'bakuchi'] as const;
+      const shelf = [{ kind: 'equip' as const, id: 'hold' as const, price: 8, sold: false }];
+      for (let seed = 1; seed <= 300; seed++) {
+        const run = { ...g.run, rng: createRng(mix32(seed)), money: 10, charms: [...charms], consumables: ['tsumo' as const, 'hiroi' as const], equipment: ['next' as const], shop: shelf };
+        const prize = apply({ ...g, run }, { type: 'gacha' }).run.gacha!.prize;
+        expect(prize?.kind ?? 'none').not.toMatch(/charm|consumable/);
+        if (prize?.kind === 'equip') expect(['hold', 'next']).not.toContain(prize.id);
+      }
+    });
+
+    it('場を突破したときと、金牌で和了ったときに福引き券をもらう。ショップを開くと回した結果は消える', () => {
+      const run = createRun(1);
+      const win = { type: 'win', gold: 1, score: { points: 0, lines: [] }, ura: [], win: { evaluation: { yakuman: 0, han: 0, yaku: [], noYaku: true }, tileIds: [], kinds: [], jokers: [], points: 0 } } as unknown as KyokuResult;
+      const afterWin = settleKyoku({ ...run, gacha: { prize: null, ticket: false } }, win);
+      expect(afterWin.gachaTickets).toBe(1);
+      expect(afterWin.gacha).toBeNull();
+      // オーラスで目標を超えて突破する
+      const last = { ...run, round: { ...run.round, kyoku: 3, score: 99999 } };
+      const cleared = settleKyoku(last, { type: 'draw', tenpai: false, fee: 0, penalty: 0, stickLost: 0 });
+      expect(cleared.phase).toBe('shop');
+      expect(cleared.gachaTickets).toBe(1);
+      expect(cleared.lastWaveBonus?.tickets).toBe(1);
+    });
   });
 
   it('版の違うログは再生しない', () => {

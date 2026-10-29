@@ -568,6 +568,11 @@ h1 .beta {
 .card.sold {
   opacity: 0.5;
 }
+/* 福引きは品物と見分けられるように点線の枠 */
+.card.gacha {
+  border-style: dashed;
+  border-color: var(--gold);
+}
 .owns {
   display: grid;
   gap: 6px;

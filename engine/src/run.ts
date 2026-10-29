@@ -9,6 +9,7 @@ import {
   CHARMS,
   CONSUMABLES,
   EQUIPMENT,
+  GACHA,
   GOLD_MONEY,
   GOLD_PER_MOD,
   MAX_CHARMS,
@@ -20,7 +21,9 @@ import {
   modifiersFor,
   type BaseRules,
   type BossId,
+  type CharmDef,
   type CharmId,
+  type EquipDef,
   type ConsumableId,
   type EquipId,
   type Loadout,
@@ -93,11 +96,13 @@ export type Offer =
   | { kind: 'mod'; id: ModId; price: number; sold: boolean }
   | { kind: 'scroll'; yaku: string; price: number; sold: boolean };
 
-/** 場の突破で受け取った祝儀の内訳 */
+/** 場の突破で受け取った祝儀の内訳と福引き券 */
 export interface WaveBonus {
   clear: number;
   interest: number;
   over: number;
+  /** 福引き券の枚数（全場クリアではもう使えないので 0） */
+  tickets: number;
 }
 
 export type RunPhase = 'kyoku' | 'shop' | 'over' | 'cleared';
@@ -129,6 +134,18 @@ export interface RunState {
   lastWaveBonus: WaveBonus | null;
   /** 終わった場の点数（突破できなかった最後の場を含む）。ランキングの合計点に使う */
   waveScores: number[];
+  /** 福引き券（祝儀を払わずに福引きを 1 回回せる）の枚数 */
+  gachaTickets: number;
+  /** 今のショップで回した福引きの結果（まだ回していなければ null。ショップを開くたびに戻す） */
+  gacha: GachaResult | null;
+}
+
+/** 福引きの結果 */
+export interface GachaResult {
+  /** 当たった品（はずれは null。はずれで戻った祝儀は gachaRefund） */
+  prize: Offer | null;
+  /** 福引き券で回した */
+  ticket: boolean;
 }
 
 function newRound(rng: number, wave: number, targets: readonly number[]): [number, Round] {
@@ -181,6 +198,8 @@ export function createRun(seed: number, options: RunOptions = {}): RunState {
     afterShop: null,
     lastWaveBonus: null,
     waveScores: [],
+    gachaTickets: 0,
+    gacha: null,
   };
 }
 
@@ -239,8 +258,10 @@ export function settleKyoku(run: RunState, result: KyokuResult, renchan = false)
   const round: Round = { ...run.round, score: run.round.score + pointsDelta(result), log: run.round.log.slice() };
   let money = run.money;
   let yakuWon = run.yakuWon;
+  let gachaTickets = run.gachaTickets;
   if (result.type === 'win') {
     money += moneyForWin(result);
+    gachaTickets += ticketsForWin(run, result);
     // 解禁に使う（ボーナスの翻・役満の名前も含める。役満なら印も入れる）
     const ev = result.win.evaluation;
     const names = ev.yaku.map((y) => y.name);
@@ -263,7 +284,7 @@ export function settleKyoku(run: RunState, result: KyokuResult, renchan = false)
       dealer,
     });
   }
-  const next: RunState = { ...run, money, round, yakuWon };
+  const next: RunState = { ...run, money, round, yakuWon, gachaTickets };
   if (result.type === 'win' && dealer && renchan) {
     next.round = { ...round, honba: round.honba + 1 };
     return openShop(next, 'sameKyoku');
@@ -277,14 +298,22 @@ function endWave(ended: RunState): RunState {
   const { score, target } = ended.round;
   const run = { ...ended, waveScores: [...ended.waveScores, score] };
   if (score < target) return { ...run, phase: 'over', shop: null, afterShop: null };
+  /** 最後の場（突破すると全場クリアで、もうショップは開かない） */
+  const last = run.wave >= WAVE_COUNT - 1;
   const bonus: WaveBonus = {
     // 突破の祝儀は段位で減る（progression.ts の runRulesFor）
     clear: runRulesFor(run.start).clearBonus,
     interest: Math.min(5, Math.floor(run.money / 5)),
     over: Math.max(0, Math.min(3, Math.floor((score / target - 1) / 0.5))),
+    tickets: last || !hasGacha(run) ? 0 : 1,
   };
-  const next = { ...run, money: run.money + bonus.clear + bonus.interest + bonus.over, lastWaveBonus: bonus };
-  if (run.wave >= WAVE_COUNT - 1) return { ...next, phase: 'cleared', shop: null, afterShop: null };
+  const next = {
+    ...run,
+    money: run.money + bonus.clear + bonus.interest + bonus.over,
+    gachaTickets: run.gachaTickets + bonus.tickets,
+    lastWaveBonus: bonus,
+  };
+  if (last) return { ...next, phase: 'cleared', shop: null, afterShop: null };
   return openShop(next, 'nextWave');
 }
 
@@ -314,6 +343,25 @@ function offerTaken(run: RunState, offers: readonly Offer[], o: Offer): boolean 
   );
 }
 
+/* 品の作り方と、並べてよいかの条件（ショップの棚と福引きで同じものを使う） */
+
+type OfferOf<K extends Offer['kind']> = Extract<Offer, { kind: K }>;
+const charmOffer = (c: CharmDef): OfferOf<'charm'> => ({ kind: 'charm', id: c.id, price: c.price ?? PRICES.charm, sold: false });
+const consumableOffer = (id: ConsumableId): OfferOf<'consumable'> => ({ kind: 'consumable', id, price: PRICES.consumable, sold: false });
+const scrollOffer = (yaku: string): OfferOf<'scroll'> => ({ kind: 'scroll', yaku, price: PRICES.scroll, sold: false });
+const equipOffer = (e: EquipDef): OfferOf<'equip'> => ({ kind: 'equip', id: e.id, price: PRICES.equip, sold: false });
+/** 役で解禁されるお守りは、その役で和了ったことがあるときだけ並ぶ */
+const charmListed = (run: RunState, c: CharmDef) => charmAvailable(c.id, run.start.unlockedYaku);
+/** 前提の設備がある設備は、それを持っているときだけ並ぶ */
+const equipListed = (run: RunState, e: EquipDef) => !e.requires || run.equipment.includes(e.requires);
+/** 役の巻物は、その役で和了ったことがある役だけ */
+const scrollsListed = (run: RunState) => scrollYakuAvailable(run.start.unlockedYaku);
+
+/** お守りか消耗品の枠がいっぱいか */
+function slotFull(run: RunState, kind: 'charm' | 'consumable'): boolean {
+  return kind === 'charm' ? run.charms.length >= MAX_CHARMS : run.consumables.length >= MAX_CONSUMABLES;
+}
+
 function rollOffer(rng: number, run: RunState, offers: readonly Offer[]): [number, Offer] {
   let r = rng;
   for (let tries = 0; tries < 50; tries++) {
@@ -322,33 +370,30 @@ function rollOffer(rng: number, run: RunState, offers: readonly Offer[]): [numbe
     [r, roll] = nextFloat(r);
     let offer: Offer;
     // 種類の出やすさ: お守り 35%・消耗品 20%・牌の改造 15%・役の巻物 15%・設備 15%
+    // 並べられない品を引いたら引き直す（乱数の使い方を変えないため、候補を絞ってから引く形にはしない）
     if (roll < 0.35) {
       [r, pick] = nextInt(r, CHARMS.length);
-      const c = CHARMS[pick];
-      // 役で解禁されるお守りは、その役で和了ったことがあるときだけ並ぶ
-      if (!charmAvailable(c.id, run.start.unlockedYaku)) continue;
-      offer = { kind: 'charm', id: c.id, price: c.price ?? PRICES.charm, sold: false };
+      if (!charmListed(run, CHARMS[pick])) continue;
+      offer = charmOffer(CHARMS[pick]);
     } else if (roll < 0.55) {
       [r, pick] = nextInt(r, CONSUMABLES.length);
-      offer = { kind: 'consumable', id: CONSUMABLES[pick].id, price: PRICES.consumable, sold: false };
+      offer = consumableOffer(CONSUMABLES[pick].id);
     } else if (roll < 0.7) {
       [r, pick] = nextInt(r, MODS.length);
       offer = { kind: 'mod', id: MODS[pick].id, price: PRICES.mod, sold: false };
     } else if (roll < 0.85) {
-      // 役の巻物は、その役で和了ったことがある役だけ（まだなければ別の品を引き直す）
-      const yaku = scrollYakuAvailable(run.start.unlockedYaku);
+      const yaku = scrollsListed(run);
       if (!yaku.length) continue;
       [r, pick] = nextInt(r, yaku.length);
-      offer = { kind: 'scroll', yaku: yaku[pick], price: PRICES.scroll, sold: false };
+      offer = scrollOffer(yaku[pick]);
     } else {
       [r, pick] = nextInt(r, EQUIPMENT.length);
-      const e = EQUIPMENT[pick];
-      if (e.requires && !run.equipment.includes(e.requires)) continue;
-      offer = { kind: 'equip', id: e.id, price: PRICES.equip, sold: false };
+      if (!equipListed(run, EQUIPMENT[pick])) continue;
+      offer = equipOffer(EQUIPMENT[pick]);
     }
     if (!offerTaken(run, offers, offer)) return [r, offer];
   }
-  return [r, { kind: 'consumable', id: 'tsumo', price: PRICES.consumable, sold: false }];
+  return [r, consumableOffer('tsumo')];
 }
 
 function rollOffers(run: RunState): RunState {
@@ -364,7 +409,7 @@ function rollOffers(run: RunState): RunState {
 }
 
 export function openShop(run: RunState, after: AfterShop): RunState {
-  return rollOffers({ ...run, phase: 'shop', afterShop: after });
+  return rollOffers({ ...run, phase: 'shop', afterShop: after, gacha: null });
 }
 
 export function reroll(run: RunState): RunState {
@@ -419,8 +464,8 @@ export function buyBlocker(run: RunState, index: number): BuyBlocker | null {
   if (run.phase !== 'shop' || !o) return 'noOffer';
   if (o.sold) return 'sold';
   if (run.money < o.price) return 'money';
-  if (o.kind === 'charm' && run.charms.length >= MAX_CHARMS) return 'charmsFull';
-  if (o.kind === 'consumable' && run.consumables.length >= MAX_CONSUMABLES) return 'consumablesFull';
+  if (o.kind === 'charm' && slotFull(run, 'charm')) return 'charmsFull';
+  if (o.kind === 'consumable' && slotFull(run, 'consumable')) return 'consumablesFull';
   return null;
 }
 
@@ -431,19 +476,91 @@ export function buy(run: RunState, index: number, target?: Kind): RunState {
   const offers = run.shop!;
   const o = offers[index];
   const next: RunState = { ...run, money: run.money - o.price, shop: offers.map((x, i) => (i === index ? { ...x, sold: true } : x)) };
+  if (o.kind === 'mod') {
+    if (target === undefined || !canModify(run.composition, o.id, target)) throw new Error('invalid target');
+    return { ...next, composition: applyMod(run.composition, o.id, target) };
+  }
+  return receive(next, o);
+}
+
+/** 品を持ち物に加える（牌の改造は対象が要るので buy が扱う） */
+function receive(run: RunState, o: Exclude<Offer, { kind: 'mod' }>): RunState {
   switch (o.kind) {
     case 'charm':
-      return { ...next, charms: [...run.charms, o.id] };
+      return { ...run, charms: [...run.charms, o.id] };
     case 'equip':
-      return { ...next, equipment: [...run.equipment, o.id] };
+      return { ...run, equipment: [...run.equipment, o.id] };
     case 'consumable':
-      return { ...next, consumables: [...run.consumables, o.id] };
+      return { ...run, consumables: [...run.consumables, o.id] };
     case 'scroll':
-      return { ...next, yakuLevels: { ...run.yakuLevels, [o.yaku]: (run.yakuLevels[o.yaku] ?? 0) + 1 } };
-    case 'mod':
-      if (target === undefined || !canModify(run.composition, o.id, target)) throw new Error('invalid target');
-      return { ...next, composition: applyMod(run.composition, o.id, target) };
+      return { ...run, yakuLevels: { ...run.yakuLevels, [o.yaku]: (run.yakuLevels[o.yaku] ?? 0) + 1 } };
   }
+}
+
+/**
+ * 福引きで受け取れる品（種類ごと）。枠がいっぱいの種類と、持っているお守り・設備は除く。
+ * 棚に並んでいるお守り・設備も除く（当たったあとに棚から買うと、同じ品を 2 つ持てるため）
+ */
+function gachaPrizes(run: RunState): Record<GachaKind, OfferOf<GachaKind>[]> {
+  const free = (o: Offer) => !offerTaken(run, run.shop ?? [], o);
+  return {
+    consumable: slotFull(run, 'consumable') ? [] : CONSUMABLES.map((c) => consumableOffer(c.id)),
+    charm: slotFull(run, 'charm') ? [] : CHARMS.filter((c) => charmListed(run, c)).map(charmOffer).filter(free),
+    scroll: scrollsListed(run).map(scrollOffer),
+    equip: EQUIPMENT.filter((e) => equipListed(run, e)).map(equipOffer).filter(free),
+  };
+}
+
+type GachaKind = keyof typeof GACHA.weights;
+
+/** 福引きがある段位か（雀聖にはない） */
+export const hasGacha = (run: RunState): boolean => runRulesFor(run.start).gacha;
+
+/** 福引きを回せるか。ショップを開くたびに 1 回まで。福引き券があれば祝儀は要らない */
+export function canGacha(run: RunState): boolean {
+  return hasGacha(run) && run.phase === 'shop' && !run.gacha && (run.gachaTickets > 0 || run.money >= GACHA.price);
+}
+
+/**
+ * 福引きを回す。福引き券があれば先に使う。はずれ（GACHA.missRate）でなければ、受け取れる品のある種類を
+ * 出やすさの重みで選び、その中から 1 つを持ち物に加える。受け取れる品がどの種類にもなければはずれ
+ */
+export function gacha(run: RunState): RunState {
+  if (!canGacha(run)) throw new Error('cannot gacha');
+  let r = run.rng;
+  let roll: number;
+  [r, roll] = nextFloat(r);
+  const prizes = gachaPrizes(run);
+  const kinds = (Object.keys(GACHA.weights) as GachaKind[]).filter((k) => prizes[k].length);
+  let prize: OfferOf<GachaKind> | null = null;
+  if (roll >= GACHA.missRate && kinds.length) {
+    let pick: number;
+    [r, pick] = nextInt(r, kinds.reduce((a, k) => a + GACHA.weights[k], 0));
+    const kind = kinds.find((k) => (pick -= GACHA.weights[k]) < 0)!;
+    [r, pick] = nextInt(r, prizes[kind].length);
+    prize = prizes[kind][pick];
+  }
+  const ticket = run.gachaTickets > 0;
+  const next: RunState = {
+    ...run,
+    rng: r,
+    gachaTickets: run.gachaTickets - (ticket ? 1 : 0),
+    money: run.money - (ticket ? 0 : GACHA.price) + gachaRefund({ prize, ticket }),
+    gacha: { prize, ticket },
+  };
+  return prize ? receive(next, prize) : next;
+}
+
+/** 福引きのはずれで戻った祝儀（祝儀で回したときだけ戻る） */
+export const gachaRefund = (g: GachaResult): number => (g.prize || g.ticket ? 0 : GACHA.missRefund);
+
+/**
+ * 和了でもらう福引き券（金牌を使って和了ると、金牌の枚数によらず 1 枚）。
+ * 最後の場の最後の局で子の和了なら、あとにショップが開かないので渡さない（親なら連荘でショップが開きうる）
+ */
+export function ticketsForWin(run: RunState, result: Extract<KyokuResult, { type: 'win' }>): number {
+  const noMoreShop = run.wave >= WAVE_COUNT - 1 && run.round.kyoku >= KYOKU_PER_WAVE - 1 && !isDealerKyoku(run);
+  return result.gold > 0 && !noMoreShop && hasGacha(run) ? 1 : 0;
 }
 
 /** ショップを出て、次の局（または次の場）へ進む */

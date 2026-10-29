@@ -18,6 +18,7 @@
 //     --characters a,b  雀士の id（既定 all）        --dans 0,1  段位（既定 all）
 //     --unlocked all|none  解禁済みの役（既定 all = 巻物とお守りがすべて並ぶ）
 //     --no-buy    ショップで何も買わない（既定はお守りと設備を買う）  --no-riichi  リーチしない
+//     --gacha     ショップで福引きを回せるなら回す（runs でも使える）
 import { parseArgs } from 'node:util';
 import { CHARMS, EQUIPMENT, MODS, SCROLL_YAKU, SOME_COLORS } from '../dist/items.js';
 import { KIND_COUNT, tileName } from '../dist/tiles.js';
@@ -41,6 +42,7 @@ const { positionals, values } = parseArgs({
     unlocked: { type: 'string', default: 'all' },
     'no-buy': { type: 'boolean', default: false },
     buy: { type: 'boolean', default: false },
+    gacha: { type: 'boolean', default: false },
     dye: { type: 'string' },
   },
 });
@@ -104,9 +106,9 @@ function runs() {
     else if (equip) cases.push({ name: equip.name, equipment: equip.requires ? [equip.requires, id] : [id] });
     else throw new Error(`アイテム ${id} がない（お守り: ${charmIds.join(',')} / 設備: ${equipIds.join(',')}）`);
   }
-  const opts = { runs: int('runs', 1), seed: int('seed'), riichi: !values['no-riichi'], buy: values.buy };
+  const opts = { runs: int('runs', 1), seed: int('seed'), riichi: !values['no-riichi'], buy: values.buy, gacha: values.gacha };
   console.log(
-    `アイテムごとに ${opts.runs} ラン（${opts.buy ? 'ショップでお守りと設備を買う' : 'ショップでは何も買わない'}${opts.riichi ? '' : '、リーチしない'}）`,
+    `アイテムごとに ${opts.runs} ラン（${opts.buy ? 'ショップでお守りと設備を買う' : 'ショップでは何も買わない'}${opts.gacha ? '、福引きを回す' : ''}${opts.riichi ? '' : '、リーチしない'}）`,
   );
   console.log('アイテム\t突破した場の平均\t差\t東/南/西/北で終了/全場クリア\t局の和了率');
   let baseline = 0;
@@ -125,9 +127,9 @@ function starts() {
   const dans = values.dans === 'all' ? DANS.map((d) => d.level) : values.dans.split(',').map(Number);
   // 解禁済みの役: all は巻物・お守りがすべて並ぶ（遊び込んだ人）、none は何も並ばない（始めたばかりの人）
   const unlockedYaku = values.unlocked === 'all' ? [...SCROLL_YAKU] : [];
-  const opts = { runs: int('runs', 1), seed: int('seed'), riichi: !values['no-riichi'], buy: !values['no-buy'] };
+  const opts = { runs: int('runs', 1), seed: int('seed'), riichi: !values['no-riichi'], buy: !values['no-buy'], gacha: values.gacha };
   console.log(
-    `雀士と段位ごとに ${opts.runs} ラン（${opts.buy ? 'ショップでお守りと設備を買う' : 'ショップでは何も買わない'}、解禁 ${values.unlocked}）`,
+    `雀士と段位ごとに ${opts.runs} ラン（${opts.buy ? 'ショップでお守りと設備を買う' : 'ショップでは何も買わない'}${opts.gacha ? '、福引きを回す' : ''}、解禁 ${values.unlocked}）`,
   );
   console.log('雀士\t段位\t突破した場の平均\t東/南/西/北で終了/全場クリア\t全場クリア率\t局の和了率');
   for (const character of characters) {

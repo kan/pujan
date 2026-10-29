@@ -12,6 +12,7 @@ import {
   buy,
   consumeConsumable,
   createRun,
+  gacha,
   leaveShop,
   reroll,
   sell,
@@ -42,6 +43,8 @@ export type GameAction =
   /** 持っている消耗品（index 番目）を売る */
   | { type: 'sellConsumable'; index: number }
   | { type: 'reroll' }
+  /** 福引きを回す（ショップを開くたびに 1 回まで） */
+  | { type: 'gacha' }
   /** ショップを出て次の局へ進む */
   | { type: 'leave' };
 
@@ -111,6 +114,8 @@ export function apply(g: GameState, action: GameAction): GameState {
       return { ...g, run: sell(inShop(g), 'consumable', action.index) };
     case 'reroll':
       return { ...g, run: reroll(inShop(g)) };
+    case 'gacha':
+      return { ...g, run: gacha(inShop(g)) };
     case 'leave':
       return withKyoku(leaveShop(inShop(g)), g.previous);
     default:

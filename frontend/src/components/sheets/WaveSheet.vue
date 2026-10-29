@@ -64,6 +64,7 @@ const submissionText = computed(() => {
       <span>利子（5ごとに1、最大5）</span><span>+{{ bonus.interest }}</span>
       <span>目標超過</span><span>+{{ bonus.over }}</span>
     </div>
+    <p v-if="bonus?.tickets" class="note">福引き券を{{ bonus.tickets }}枚もらいました（ショップの福引きを祝儀なしで回せます）。</p>
     <section v-if="unlocked.length" class="unlocks" aria-label="解禁">
       <h3>解禁</h3>
       <ul>

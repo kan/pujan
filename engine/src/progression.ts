@@ -158,6 +158,8 @@ export interface DanDef {
   /** 場を突破したときの祝儀（clear）の増減 */
   clearBonusDelta?: number;
   shopSize?: number;
+  /** ショップで福引きを回せない（福引き券ももらえない）。上の段位にも引き継ぐ */
+  noGacha?: boolean;
 }
 
 export const DANS: readonly DanDef[] = [
@@ -166,7 +168,8 @@ export const DANS: readonly DanDef[] = [
   { level: 2, name: '三段', description: '場を突破したときの祝儀が1少ない', clearBonusDelta: -1 },
   { level: 3, name: '四段', description: '1局が11巡', turnsDelta: -1 },
   { level: 4, name: '五段', description: '場の目標点が2倍（二段の1.5倍の代わり）', targetTimes: 2 },
-  { level: 5, name: '雀聖', description: 'ショップの品が2つ', shopSize: 2 },
+  // 福引きがあると品の数の縛りが弱まる（sim で全場クリア 25%→43%）ので、福引きも止める
+  { level: 5, name: '雀聖', description: 'ショップの品が2つで、福引きがない', shopSize: 2, noGacha: true },
 ];
 
 export const danName = (level: number): string => DANS[level]?.name ?? `${level}`;
@@ -233,6 +236,8 @@ export interface RunRules {
   /** 場を突破したときの祝儀（利子と目標超過の分を除く） */
   clearBonus: number;
   shopSize: number;
+  /** ショップで福引きを回せる（福引き券をもらえる） */
+  gacha: boolean;
   charms: CharmId[];
   equipment: EquipId[];
 }
@@ -244,11 +249,13 @@ export function runRulesFor(start: RunChoice): RunRules {
   let turns = DEFAULT_BASE_RULES.turns;
   let clearBonus = BASE_CLEAR_BONUS;
   let shopSize = BASE_SHOP_SIZE;
+  let gacha = true;
   for (const d of DANS.slice(0, start.dan + 1)) {
     targetTimes = d.targetTimes ?? targetTimes;
     turns += d.turnsDelta ?? 0;
     clearBonus += d.clearBonusDelta ?? 0;
     shopSize = d.shopSize ?? shopSize;
+    if (d.noGacha) gacha = false;
   }
   return {
     base: { ...DEFAULT_BASE_RULES, ...c.base, turns },
@@ -256,6 +263,7 @@ export function runRulesFor(start: RunChoice): RunRules {
     startMoney: c.money,
     clearBonus: Math.max(0, clearBonus),
     shopSize,
+    gacha,
     charms: [...c.charms],
     equipment: [...c.equipment],
   };

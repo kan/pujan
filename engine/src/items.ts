@@ -153,6 +153,17 @@ export const PRICES = { charm: 5, equip: 8, consumable: 3, mod: 3, scroll: 3 } a
 export const MAX_CHARMS = 5;
 export const MAX_CONSUMABLES = 2;
 export const REROLL_PRICE = 2;
+
+/** 福引き（ショップで 1 回だけ回せる、景品の分からない買い物。docs/SPEC.md §4.4） */
+export const GACHA = {
+  price: 2,
+  /** はずれの確率 */
+  missRate: 0.3,
+  /** 祝儀で回してはずれたときに戻る祝儀（福引き券で回したときは戻らない） */
+  missRefund: 1,
+  /** はずれ以外の景品の種類の出やすさ（受け取れる品がない種類は除いて配分し直す） */
+  weights: { consumable: 30, charm: 20, scroll: 15, equip: 5 },
+} as const;
 /** ショップで持ち物を売ったときにもらえる祝儀 */
 export const SELL_PRICES = { charm: 2, consumable: 1 } as const;
 
