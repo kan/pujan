@@ -7,6 +7,7 @@
  *
  * CLI（scripts/sim.mjs）とテストから使う。frontend からは使わないので index.ts からは出さない。
  */
+import { smartAction } from './ai.js';
 import { apply, createGame, isFinished, type GameAction } from './game.js';
 import { evaluateFive, type HandRules } from './hand.js';
 import {
@@ -338,7 +339,7 @@ export interface RunSimOptions {
   start?: RunStart;
   /** ショップで買えるお守りと設備を買う（既定は何も買わない） */
   buy?: boolean;
-  /** ショップで福引きを回せるなら回す（買い物より先に） */
+  /** ショップで福引きを回せるなら回す（買い物より先に。basic の AI だけ。smart の AI は自分で決める） */
   gacha?: boolean;
   /**
    * 雀士と段位で決まる基本ルールの上書き（雀士の始めの条件を変えたときの強さを比べるため）。
@@ -347,6 +348,11 @@ export interface RunSimOptions {
   rules?: { holdSlots?: number; next?: number; turnsDelta?: number };
   /** 始めの祝儀の上書き */
   money?: number;
+  /**
+   * 打ち手。basic は目標の形を狙う AI（botAction。ショップではお守りと設備を並びの順に買う）、
+   * smart は点数の期待値で打つ AI（ai.ts。消耗品・延長・連荘・ショップも判断する）。既定は basic
+   */
+  ai?: 'basic' | 'smart';
 }
 
 export interface RunSimResult {
@@ -379,7 +385,7 @@ function overrideRules(base: BaseRules, o: NonNullable<RunSimOptions['rules']>):
 
 /**
  * AI にランを遊ばせる。既定ではショップで何も買わず、持たせたアイテムの効き目だけを見る（buy で買わせる）。
- * 和了れる手ができたらすぐ和了り、親の和了では必ず連荘する。
+ * basic の AI は和了れる手ができたらすぐ和了り、親の和了では必ず連荘する（smart の AI は ai.ts を参照）。
  */
 export function simulateRuns(opts: RunSimOptions): RunSimResult {
   const reached = Array<number>(WAVE_COUNT + 1).fill(0);
@@ -400,6 +406,15 @@ export function simulateRuns(opts: RunSimOptions): RunSimResult {
     for (let actions = 0; !isFinished(g); actions++) {
       // 親の和了が続くなどで終わらないランを打ち切る（1 ランはふつう数百手）
       if (actions > 100000) throw new Error(`run ${i} did not finish`);
+      if (opts.ai === 'smart') {
+        if (g.kyoku?.result) {
+          kyoku++;
+          if (g.kyoku.result.type === 'win') won++;
+        }
+        // ショップに入るか（buy）だけを指定し、何を買うか・福引きを回すかは AI が決める
+        g = apply(g, smartAction(g, { riichi: opts.riichi ?? true, shop: opts.buy ?? false }));
+        continue;
+      }
       if (!g.kyoku) {
         const pick = opts.buy ? shopPick(g.run) : -1;
         const shop: GameAction =

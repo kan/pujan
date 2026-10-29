@@ -21,7 +21,14 @@
 //     --gacha     ショップで福引きを回せるなら回す（runs でも使える）
 //     --rules holdSlots=1,next=4,turnsDelta=3  雀士の保留枠・ネクストを置き換え、巡数を増減する（runs でも使える）
 //     --money N   始めの祝儀を上書きする（runs でも使える）
+//   runs と starts の共通:
+//     --ai basic|smart  打ち手（既定 basic = 目標の形を狙う AI、smart = 点数の期待値で打つ AI。src/ai.ts）
+//                 smart は --buy（starts では既定）でショップの品を価値の目安で選び、福引き・消耗品・延長・連荘も判断する
+//                 （--gacha は basic だけに効く）
+//     --jobs N    N 個のワーカーで並べて回す（既定 1。結果は同じ。CPU の数より多くしない）
+import { availableParallelism } from 'node:os';
 import { parseArgs } from 'node:util';
+import { Worker } from 'node:worker_threads';
 import { CHARMS, EQUIPMENT, MODS, SCROLL_YAKU, SOME_COLORS } from '../dist/items.js';
 import { KIND_COUNT, tileName } from '../dist/tiles.js';
 import { CHARACTERS, DANS } from '../dist/progression.js';
@@ -48,6 +55,8 @@ const { positionals, values } = parseArgs({
     buy: { type: 'boolean', default: false },
     gacha: { type: 'boolean', default: false },
     dye: { type: 'string' },
+    ai: { type: 'string', default: 'basic' },
+    jobs: { type: 'string', default: '1' },
   },
 });
 
@@ -59,6 +68,57 @@ const int = (name, min = 0) => {
 };
 const pct = (p) => `${(p * 100).toFixed(1)}%`;
 const progress = (msg) => process.stderr.write(`\r${msg}\x1b[K`);
+
+/**
+ * simulateRuns を条件の数だけ回し、結果を条件の順に onResult へ渡す。--jobs が 2 以上ならワーカーで並べて回す
+ * （ランのシードは条件ごとに決まるので、並べても結果は同じ）
+ */
+async function runEach(list, onResult) {
+  const jobs = Math.min(int('jobs', 1), list.length, availableParallelism());
+  if (jobs <= 1) {
+    list.forEach((c, i) => {
+      progress(`${c.label} …`);
+      const r = simulateRuns(c.opts);
+      progress('');
+      onResult(c, r, i);
+    });
+    return;
+  }
+  const results = new Array(list.length);
+  let printed = 0;
+  let next = 0;
+  let done = 0;
+  const flush = () => {
+    while (printed < list.length && results[printed]) {
+      onResult(list[printed], results[printed], printed);
+      printed++;
+    }
+  };
+  await new Promise((resolve, reject) => {
+    const workers = Array.from({ length: jobs }, () => new Worker(new URL('./sim-worker.mjs', import.meta.url)));
+    const feed = (w) => {
+      if (next >= list.length) return w.terminate();
+      const id = next++;
+      w.postMessage({ id, opts: list[id].opts });
+    };
+    for (const w of workers) {
+      w.on('message', ({ id, result }) => {
+        results[id] = result;
+        done++;
+        progress('');
+        flush();
+        progress(`${done}/${list.length} …`);
+        if (done === list.length) {
+          progress('');
+          resolve();
+        }
+        feed(w);
+      });
+      w.on('error', reject);
+      feed(w);
+    }
+  });
+}
 
 function deal() {
   console.log('形\t確率\t1/N');
@@ -101,8 +161,9 @@ function startOverrides() {
       )
     : undefined;
   const money = values.money === undefined ? undefined : int('money');
+  if (!['basic', 'smart'].includes(values.ai)) throw new Error('--ai は basic か smart');
   if (rules || money !== undefined) console.log(`始めの条件の上書き: ${values.rules ?? ''}${money === undefined ? '' : ` 祝儀=${money}`}`);
-  return { rules, money };
+  return { rules, money, ai: values.ai };
 }
 
 function runs() {
@@ -132,18 +193,16 @@ function runs() {
   }
   const opts = { runs: int('runs', 1), seed: int('seed'), riichi: !values['no-riichi'], buy: values.buy, gacha: values.gacha, ...startOverrides() };
   console.log(
-    `アイテムごとに ${opts.runs} ラン（${opts.buy ? 'ショップでお守りと設備を買う' : 'ショップでは何も買わない'}${opts.gacha ? '、福引きを回す' : ''}${opts.riichi ? '' : '、リーチしない'}）`,
+    `アイテムごとに ${opts.runs} ラン（AI ${opts.ai}、${opts.buy ? (opts.ai === 'smart' ? 'ショップで買う' : 'ショップでお守りと設備を買う') : 'ショップでは何も買わない'}${opts.gacha ? '、福引きを回す' : ''}${opts.riichi ? '' : '、リーチしない'}）`,
   );
   console.log('アイテム\t突破した場の平均\t差\t東/南/西/北で終了/全場クリア\t局の和了率');
   let baseline = 0;
-  for (const c of cases) {
-    progress(`${c.name} …`);
-    const r = simulateRuns({ ...opts, charms: c.charms, equipment: c.equipment, mods: c.mods });
-    progress('');
-    if (c.name === 'なし') baseline = r.meanCleared;
+  const list = cases.map((c) => ({ label: c.name, opts: { ...opts, charms: c.charms, equipment: c.equipment, mods: c.mods } }));
+  return runEach(list, ({ label }, r) => {
+    if (label === 'なし') baseline = r.meanCleared;
     const diff = r.meanCleared - baseline;
-    console.log(`${c.name}\t${r.meanCleared.toFixed(2)}\t${diff >= 0 ? '+' : ''}${diff.toFixed(2)}\t${r.reached.join('/')}\t${pct(r.winRate)}`);
-  }
+    console.log(`${label}\t${r.meanCleared.toFixed(2)}\t${diff >= 0 ? '+' : ''}${diff.toFixed(2)}\t${r.reached.join('/')}\t${pct(r.winRate)}`);
+  });
 }
 
 function starts() {
@@ -153,21 +212,22 @@ function starts() {
   const unlockedYaku = values.unlocked === 'all' ? [...SCROLL_YAKU] : [];
   const opts = { runs: int('runs', 1), seed: int('seed'), riichi: !values['no-riichi'], buy: !values['no-buy'], gacha: values.gacha, ...startOverrides() };
   console.log(
-    `雀士と段位ごとに ${opts.runs} ラン（${opts.buy ? 'ショップでお守りと設備を買う' : 'ショップでは何も買わない'}${opts.gacha ? '、福引きを回す' : ''}、解禁 ${values.unlocked}）`,
+    `雀士と段位ごとに ${opts.runs} ラン（AI ${opts.ai}、${opts.buy ? (opts.ai === 'smart' ? 'ショップで買う' : 'ショップでお守りと設備を買う') : 'ショップでは何も買わない'}${opts.gacha ? '、福引きを回す' : ''}、解禁 ${values.unlocked}）`,
   );
   console.log('雀士\t段位\t突破した場の平均\t東/南/西/北で終了/全場クリア\t全場クリア率\t局の和了率');
+  const list = [];
   for (const character of characters) {
     const name = CHARACTERS.find((c) => c.id === character)?.name;
     if (!name) throw new Error(`雀士 ${character} がない（${CHARACTERS.map((c) => c.id).join(',')}）`);
     for (const dan of dans) {
       if (!DANS[dan]) throw new Error(`段位 ${dan} がない（0〜${DANS.length - 1}）`);
-      progress(`${name}・${DANS[dan].name} …`);
-      const r = simulateRuns({ ...opts, start: { character, dan, unlockedYaku } });
-      progress('');
-      const cleared = r.reached[r.reached.length - 1] / r.runs;
-      console.log(`${name}\t${DANS[dan].name}\t${r.meanCleared.toFixed(2)}\t${r.reached.join('/')}\t${pct(cleared)}\t${pct(r.winRate)}`);
+      list.push({ label: `${name}\t${DANS[dan].name}`, opts: { ...opts, start: { character, dan, unlockedYaku } } });
     }
   }
+  return runEach(list, ({ label }, r) => {
+    const cleared = r.reached[r.reached.length - 1] / r.runs;
+    console.log(`${label}\t${r.meanCleared.toFixed(2)}\t${r.reached.join('/')}\t${pct(cleared)}\t${pct(r.winRate)}`);
+  });
 }
 
 const commands = { deal, target, runs, starts };
@@ -176,4 +236,4 @@ if (!command) {
   console.error(`使い方: npm run sim -w engine -- <${Object.keys(commands).join('|')}> [オプション]（オプションは scripts/sim.mjs の先頭を参照）`);
   process.exit(1);
 }
-command();
+await command();

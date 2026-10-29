@@ -11,3 +11,4 @@ export * from './progression.js';
 export * from './stats.js';
 export * from './feedback.js';
 export * from './week.js';
+export * from './ai.js';
