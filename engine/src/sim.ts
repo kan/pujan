@@ -9,13 +9,22 @@
  */
 import { apply, createGame, isFinished } from './game.js';
 import { evaluateFive, type HandRules } from './hand.js';
-import { DEFAULT_BASE_RULES, MAX_CHARMS, modifiersFor, type BaseRules, type CharmId, type EquipId } from './items.js';
+import {
+  DEFAULT_BASE_RULES,
+  MAX_CHARMS,
+  modifiersFor,
+  type BaseRules,
+  type CharmId,
+  type EquipId,
+  type ModId,
+} from './items.js';
 import {
   canRiichi,
   defaultComposition,
   remainingOf,
   startKyoku,
   step,
+  turnLimit,
   visibleNext,
   type KyokuMove,
   type KyokuState,
@@ -229,7 +238,7 @@ export function botAction(s: KyokuState, opts: BotOptions): KyokuMove {
   const tiles = located(s);
   const have = Array<number>(KIND_COUNT).fill(0);
   for (const t of tiles) have[t.kind]++;
-  const draws = s.setup.mods.turns - s.turn;
+  const draws = turnLimit(s) - s.turn;
   const next = visibleNext(s).slice(0, draws);
   const known = Array<number>(KIND_COUNT).fill(0);
   for (const t of next) known[t.kind]++;
@@ -272,6 +281,8 @@ export interface TargetSimOptions {
   seed: number;
   /** 基本ルールの上書き（保留枠・ネクスト・巡数など） */
   rules?: Partial<BaseRules>;
+  /** 1 巡目に消耗品の染め粉を使い、この色（0 萬子・1 筒子・2 索子・3 字牌）を残す */
+  dye?: number;
 }
 
 export interface TargetSimResult {
@@ -301,6 +312,7 @@ export function simulateTarget(opts: TargetSimOptions): TargetSimResult {
       honba: 0,
       yakuLevels: {},
     });
+    if (opts.dye !== undefined && !s.result) s = step(s, { type: 'consumable', id: 'some', color: opts.dye });
     while (!s.result) s = step(s, botAction(s, { target: opts.target }));
     if (s.result.type === 'win') {
       wins++;
@@ -318,6 +330,8 @@ export interface RunSimOptions {
   /** 最初から持たせるお守りと設備 */
   charms?: CharmId[];
   equipment?: EquipId[];
+  /** 最初から当てておく牌の改造 */
+  mods?: { id: ModId; kind: Kind }[];
   /** 聴牌したらリーチする（既定は true） */
   riichi?: boolean;
   /** 始めの条件（雀士・段位・解禁済みの役。既定は標準の雀士・初段・解禁なし） */
@@ -362,7 +376,11 @@ export function simulateRuns(opts: RunSimOptions): RunSimResult {
     let seed: number;
     [rng, seed] = nextInt(rng, 0x7fffffff);
     // 画面やサーバーの再生と同じ apply() で進める
-    let g = createGame(seed, { start: opts.start, loadout: { charms: opts.charms ?? [], equipment: opts.equipment ?? [] } });
+    let g = createGame(seed, {
+      start: opts.start,
+      loadout: { charms: opts.charms ?? [], equipment: opts.equipment ?? [] },
+      mods: opts.mods,
+    });
     for (let actions = 0; !isFinished(g); actions++) {
       // 親の和了が続くなどで終わらないランを打ち切る（1 ランはふつう数百手）
       if (actions > 100000) throw new Error(`run ${i} did not finish`);

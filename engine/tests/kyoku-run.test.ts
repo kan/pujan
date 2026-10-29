@@ -1,9 +1,30 @@
 import { describe, expect, it } from 'vitest';
-import { DEFAULT_BASE_RULES, modifiersFor } from '../src/items.js';
-import { allTiles, canRiichi, defaultComposition, isActing, startKyoku, step, type KyokuState } from '../src/kyoku.js';
+import {
+  DEALER_EXTRA_TURNS,
+  DEFAULT_BASE_RULES,
+  EXTEND_TURNS,
+  GOLD_PER_MOD,
+  modifiersFor,
+  type EquipId,
+  type ModId,
+} from '../src/items.js';
+import {
+  allTiles,
+  canRiichi,
+  canUseConsumable,
+  defaultComposition,
+  isActing,
+  judge,
+  remainingOf,
+  startKyoku,
+  step,
+  turnLimit,
+  type KyokuSetup,
+  type KyokuState,
+} from '../src/kyoku.js';
 import { createRng, nextInt } from '../src/rng.js';
-import { beginKyoku, buy, createRun, leaveShop, settleKyoku, type RunState } from '../src/run.js';
-import { EAST, SOUTH } from '../src/tiles.js';
+import { beginKyoku, buy, canModify, createRun, leaveShop, settleKyoku, type RunState } from '../src/run.js';
+import { EAST, SOUTH, suit, type Tile } from '../src/tiles.js';
 
 function newKyoku(seed: number): KyokuState {
   return startKyoku({
@@ -119,6 +140,118 @@ describe('局の進行', () => {
       expect(k.result).not.toBeNull();
       expect(k.turn).toBeLessThanOrEqual(12);
     }
+  });
+});
+
+/** 和了らずにツモ切りを続け、最終巡（打牌の前）まで進める */
+function toLastTurn(s: KyokuState): KyokuState {
+  let k = s;
+  while (!k.result && k.turn < turnLimit(k)) k = step(k, { type: 'discard', zone: 'drawn', index: 0 });
+  return k;
+}
+
+function kyokuSetup(seed: number, equipment: EquipId[] = [], dealer = false): KyokuSetup {
+  return {
+    rng: createRng(seed),
+    composition: defaultComposition(true),
+    mods: modifiersFor(DEFAULT_BASE_RULES, { charms: [], equipment }, null, dealer),
+    bakaze: EAST,
+    seat: SOUTH,
+    dealer,
+    honba: 0,
+    yakuLevels: {},
+  };
+}
+
+function kyokuWith(seed: number, equipment: EquipId[], dealer = false): KyokuState {
+  return startKyoku(kyokuSetup(seed, equipment, dealer));
+}
+
+describe('消耗品と設備', () => {
+  it('染め粉: 選んだ色以外の牌を山から半分抜き、選んだ色は残す', () => {
+    const k = newKyoku(11);
+    const count = (tiles: readonly Tile[], color: number) => tiles.filter((t) => suit(t.kind) === color).length;
+    const used = step(k, { type: 'consumable', id: 'some', color: 1 });
+    expect(count(used.wall, 1)).toBe(count(k.wall, 1));
+    const others = k.wall.length - count(k.wall, 1);
+    expect(used.removed).toHaveLength(Math.floor(others / 2));
+    expect(used.wall.length + used.removed.length).toBe(k.wall.length);
+    // 抜いた牌は待ちの残り枚数から引く
+    const kind = used.removed[0].kind;
+    const removedOfKind = used.removed.filter((t) => t.kind === kind).length;
+    expect(remainingOf(used, kind)).toBe(remainingOf(k, kind) - removedOfKind);
+  });
+
+  it('染め粉: 色の指定がないか範囲外なら使えない。リーチ中も使えない', () => {
+    const k = newKyoku(11);
+    expect(() => step(k, { type: 'consumable', id: 'some' })).toThrow();
+    expect(() => step(k, { type: 'consumable', id: 'some', color: 4 })).toThrow();
+    expect(() => step(k, { type: 'consumable', id: 'some', color: 1.5 })).toThrow();
+    expect(canUseConsumable({ ...k, riichi: { turn: 1, stick: 100 } }, 'some')).toBe(false);
+    // 色を取らない消耗品に色を付けた操作も拒む
+    expect(() => step(k, { type: 'consumable', id: 'nozoki', color: 0 })).toThrow();
+  });
+
+  it('延長札: 最終巡のツモのあとだけ使え、巡数が延びる（1 局に 1 回。リーチ中も使える）', () => {
+    const k = newKyoku(3);
+    expect(canUseConsumable(k, 'encho')).toBe(false);
+    const last = toLastTurn(k);
+    expect(last.result).toBeNull();
+    expect(last.turn).toBe(12);
+    expect(canUseConsumable({ ...last, riichi: { turn: 5, stick: 100 } }, 'encho')).toBe(true);
+    // 山が尽きていれば延ばしても引けないので使えない
+    expect(canUseConsumable({ ...last, wall: [] }, 'encho')).toBe(false);
+    const extended = step(last, { type: 'consumable', id: 'encho' });
+    expect(turnLimit(extended)).toBe(12 + EXTEND_TURNS);
+    expect(canUseConsumable(extended, 'encho')).toBe(false);
+    const next = step(extended, { type: 'discard', zone: 'drawn', index: 0 });
+    expect(next.result).toBeNull();
+    expect(next.turn).toBe(13);
+    const end = toLastTurn(next);
+    expect(end.turn).toBe(12 + EXTEND_TURNS);
+    expect(canUseConsumable(end, 'encho')).toBe(false);
+  });
+
+  it('平常心: リーチが 2 翻になり、流局してもリーチ棒が戻る', () => {
+    for (const [equipment, han, lost] of [[[], 1, 100], [['heijoshin'], 2, 0]] as const) {
+      const mods = modifiersFor(DEFAULT_BASE_RULES, { charms: [], equipment: [...equipment] }, null);
+      // 1萬1萬2萬3萬＋ツモ4萬で和了れる局
+      const order = { indicators: [30], hand: [0, 0, 1, 2], draws: [3] };
+      const setup = { ...kyokuSetup(1), mods };
+      const k = startKyoku(setup, order);
+      // 1 巡目の和了は天和（役満）になるので、巡を進めた形にする
+      const riichi = { ...k, turn: 3, discards: 2, riichi: { turn: 2, stick: 100 } };
+      expect(judge(riichi)!.evaluation.yaku.find((y) => y.name === 'リーチ')!.han).toBe(han);
+      const drawn = toLastTurn({ ...startKyoku(setup), riichi: { turn: 1, stick: 100 } });
+      const end = step(drawn, { type: 'discard', zone: 'drawn', index: 0 });
+      expect(end.result).toMatchObject({ type: 'draw', stickLost: lost });
+    }
+  });
+
+  it('上座: 親番の局だけ巡数が増える', () => {
+    expect(kyokuWith(1, ['kamiza'], true).setup.mods.turns).toBe(12 + DEALER_EXTRA_TURNS);
+    expect(kyokuWith(1, ['kamiza'], false).setup.mods.turns).toBe(12);
+    expect(kyokuWith(1, [], true).setup.mods.turns).toBe(12);
+  });
+});
+
+describe('牌の改造', () => {
+  const comp = (mods: { id: ModId; kind: number }[]) => createRun(1, { mods }).composition;
+
+  it('朱塗りは選んだ牌を全部赤牌にする（写しのあとなら 5 枚）', () => {
+    expect(comp([{ id: 'shu', kind: 13 }]).red[13]).toBe(4);
+    expect(comp([{ id: 'utsushi', kind: 13 }, { id: 'shu', kind: 13 }]).red[13]).toBe(5);
+    // 赤牌でない牌がもうなければ選べない
+    expect(canModify(comp([{ id: 'shu', kind: 13 }]), 'shu', 13)).toBe(false);
+  });
+
+  it('金箔は選んだ牌の 2 枚を金牌にし、赤牌は金牌にしない', () => {
+    expect(comp([{ id: 'kin', kind: 0 }]).gold[0]).toBe(GOLD_PER_MOD);
+    const c = comp([{ id: 'kin', kind: 4 }, { id: 'kin', kind: 4 }]);
+    // 5萬は赤牌が 1 枚あるので、金牌は 3 枚まで
+    expect(c.gold[4]).toBe(3);
+    expect(canModify(c, 'kin', 4)).toBe(false);
+    expect(canModify(c, 'shu', 4)).toBe(false);
   });
 });
 

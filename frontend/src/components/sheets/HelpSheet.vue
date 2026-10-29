@@ -38,6 +38,10 @@ const yakuTab = computed(() => YAKU_TABS.find((t) => t.id === tab.value));
 const plain = (list: readonly { name: string; description: string }[]) =>
   list.map((x) => ({ name: x.name, tag: '', description: x.description }));
 const axisOrder = [...new Set(CHARMS.map((c) => c.axis))];
+/** リーチ中も使える消耗品の名前（「延長札」） */
+const riichiUsable = CONSUMABLES.filter((c) => c.usableInRiichi)
+  .map((c) => c.name)
+  .join('・');
 const ITEM_SECTIONS = [
   {
     title: `お守り（${MAX_CHARMS}つまで。売ると祝儀${SELL_PRICES.charm}）`,
@@ -51,7 +55,7 @@ const ITEM_SECTIONS = [
   },
   { title: '設備（ずっと効く強化）', rows: plain(EQUIPMENT) },
   {
-    title: `消耗品（${MAX_CONSUMABLES}つまで。局の中で1回使う。リーチ中は使えない。売ると祝儀${SELL_PRICES.consumable}）`,
+    title: `消耗品（${MAX_CONSUMABLES}つまで。局の中で1回使う。${riichiUsable}のほかはリーチ中は使えない。売ると祝儀${SELL_PRICES.consumable}）`,
     rows: plain(CONSUMABLES),
   },
   { title: '牌の改造（山の構成を変える。ランの間ずっと残る）', rows: plain(MODS) },

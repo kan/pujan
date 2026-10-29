@@ -25,14 +25,14 @@ import type { Kind } from './tiles.js';
  * エンジンの版。同じ操作ログから違う結果になる変更（役・点数・乱数の使い方・ショップなど）をしたら 1 つ上げる。
  * サーバーは記録の版と今の版が違うログを再生で検証できない（§5.3）。
  */
-export const ENGINE_VERSION = 3;
+export const ENGINE_VERSION = 4;
 
 /** プレイヤーの操作 */
 export type GameAction =
   /** 局の中の操作（打牌・保留・リーチ・和了・配牌の引き直し） */
   | KyokuMove
-  /** 持っている消耗品（index 番目）を使う */
-  | { type: 'useConsumable'; index: number }
+  /** 持っている消耗品（index 番目）を使う。染め粉は残す色（color）が要る */
+  | { type: 'useConsumable'; index: number; color?: number }
   /** 終わった局を精算する。親の和了では renchan で連荘か和了やめかを選ぶ */
   | { type: 'settle'; renchan?: boolean }
   /** ショップの品物（index 番目）を買う。牌の改造は対象の種類（target）が要る */
@@ -96,7 +96,7 @@ export function apply(g: GameState, action: GameAction): GameState {
       // consumeConsumable が番号を確かめてから、その消耗品を局で使う
       const run = consumeConsumable(g.run, action.index);
       const id = g.run.consumables[action.index];
-      return { ...g, run, kyoku: step(activeKyoku(g), { type: 'consumable', id }) };
+      return { ...g, run, kyoku: step(activeKyoku(g), { type: 'consumable', id, color: action.color }) };
     }
     case 'settle': {
       const result = activeKyoku(g).result;

@@ -6,17 +6,21 @@
 //     --games N   局数（既定 2000）     --seed N   シード（既定 1）
 //     --hold N    保留枠（既定 3）      --next N   ネクスト（既定 2）
 //     --turns N   巡数（既定 12）       --target 名前  1 つの形だけ測る
+//     --dye N     1 巡目に染め粉を使い、この色を残す（0 萬子・1 筒子・2 索子・3 字牌）
 //   runs [オプション]          AI にランを遊ばせ、アイテムごとに進めた場を比べる
 //     --runs N    アイテムごとのラン数（既定 100）  --seed N  シード（既定 1）
-//     --items a,b アイテムの id（既定 all = お守りと設備をすべて）
+//     --items a,b アイテムの id（既定 all = お守りと設備をすべて）。牌の改造は「id:牌の番号」で、
+//                 最初から当てておく（例: shu:13 は 5 筒を朱塗り。番号は tiles.ts。+ でつなぐと重ねる: utsushi:13+shu:13）
 //     --no-riichi 聴牌してもリーチしない
+//     --buy       ショップでお守りと設備を買う（祝儀が効くアイテム、金箔などを比べるとき）
 //   starts [オプション]        AI にランを遊ばせ、雀士と段位ごとに進めた場を比べる（バランスの確認。SPEC フェーズ 4.5）
 //     --runs N    組み合わせごとのラン数（既定 100）  --seed N  シード（既定 1）
 //     --characters a,b  雀士の id（既定 all）        --dans 0,1  段位（既定 all）
 //     --unlocked all|none  解禁済みの役（既定 all = 巻物とお守りがすべて並ぶ）
 //     --no-buy    ショップで何も買わない（既定はお守りと設備を買う）  --no-riichi  リーチしない
 import { parseArgs } from 'node:util';
-import { CHARMS, EQUIPMENT, SCROLL_YAKU } from '../dist/items.js';
+import { CHARMS, EQUIPMENT, MODS, SCROLL_YAKU, SOME_COLORS } from '../dist/items.js';
+import { KIND_COUNT, tileName } from '../dist/tiles.js';
 import { CHARACTERS, DANS } from '../dist/progression.js';
 import { TARGET_NAMES, dealTable, simulateRuns, simulateTarget } from '../dist/sim.js';
 
@@ -36,6 +40,8 @@ const { positionals, values } = parseArgs({
     dans: { type: 'string', default: 'all' },
     unlocked: { type: 'string', default: 'all' },
     'no-buy': { type: 'boolean', default: false },
+    buy: { type: 'boolean', default: false },
+    dye: { type: 'string' },
   },
 });
 
@@ -59,11 +65,15 @@ function target() {
   for (const n of names) if (!TARGET_NAMES.includes(n)) throw new Error(`--target は ${TARGET_NAMES.join('・')} のどれか`);
   const games = int('games', 1);
   const seed = int('seed');
-  console.log(`保留 ${rules.holdSlots}・ネクスト ${rules.next}・${rules.turns} 巡、${games} 局`);
+  const dye = values.dye === undefined ? undefined : int('dye');
+  if (dye !== undefined && dye >= SOME_COLORS.length) {
+    throw new Error(`--dye は 0〜${SOME_COLORS.length - 1}（${SOME_COLORS.join('・')}）`);
+  }
+  console.log(`保留 ${rules.holdSlots}・ネクスト ${rules.next}・${rules.turns} 巡、${games} 局${dye === undefined ? '' : `、1 巡目に染め粉（${SOME_COLORS[dye]}）`}`);
   console.log('形\t和了率\t平均の巡');
   for (const name of names) {
     progress(`${name} …`);
-    const r = simulateTarget({ target: name, games, seed, rules });
+    const r = simulateTarget({ target: name, games, seed, rules, dye });
     progress('');
     console.log(`${name}\t${pct(r.rate)}\t${r.meanTurn.toFixed(1)}`);
   }
@@ -73,22 +83,36 @@ function runs() {
   const charmIds = CHARMS.map((c) => c.id);
   const equipIds = EQUIPMENT.map((e) => e.id);
   const ids = values.items === 'all' ? [...charmIds, ...equipIds] : values.items.split(',');
-  const cases = [{ name: 'なし', charms: [], equipment: [] }];
+  // 持たせないものの欄は省く（simulateRuns が空として扱う）
+  const cases = [{ name: 'なし' }];
   for (const id of ids) {
+    if (id.includes(':')) {
+      // 牌の改造（+ でつなぐと順に重ねる）
+      const mods = id.split('+').map((part) => {
+        const [modId, kind] = part.split(':');
+        const def = MODS.find((m) => m.id === modId);
+        if (!def || !/^\d+$/.test(kind) || Number(kind) >= KIND_COUNT) throw new Error(`牌の改造 ${part} が読めない（${MODS.map((m) => m.id).join(',')}:牌の番号）`);
+        return { id: modId, kind: Number(kind), label: `${def.name}(${tileName(Number(kind))})` };
+      });
+      cases.push({ name: mods.map((m) => m.label).join('+'), mods });
+      continue;
+    }
     const charm = CHARMS.find((c) => c.id === id);
     const equip = EQUIPMENT.find((e) => e.id === id);
-    if (charm) cases.push({ name: charm.name, charms: [id], equipment: [] });
+    if (charm) cases.push({ name: charm.name, charms: [id] });
     // 前提の設備（猫に小判には化け猫）も一緒に持たせる
-    else if (equip) cases.push({ name: equip.name, charms: [], equipment: equip.requires ? [equip.requires, id] : [id] });
+    else if (equip) cases.push({ name: equip.name, equipment: equip.requires ? [equip.requires, id] : [id] });
     else throw new Error(`アイテム ${id} がない（お守り: ${charmIds.join(',')} / 設備: ${equipIds.join(',')}）`);
   }
-  const opts = { runs: int('runs', 1), seed: int('seed'), riichi: !values['no-riichi'] };
-  console.log(`アイテムごとに ${opts.runs} ラン（ショップでは何も買わない${opts.riichi ? '' : '、リーチしない'}）`);
+  const opts = { runs: int('runs', 1), seed: int('seed'), riichi: !values['no-riichi'], buy: values.buy };
+  console.log(
+    `アイテムごとに ${opts.runs} ラン（${opts.buy ? 'ショップでお守りと設備を買う' : 'ショップでは何も買わない'}${opts.riichi ? '' : '、リーチしない'}）`,
+  );
   console.log('アイテム\t突破した場の平均\t差\t東/南/西/北で終了/全場クリア\t局の和了率');
   let baseline = 0;
   for (const c of cases) {
     progress(`${c.name} …`);
-    const r = simulateRuns({ ...opts, charms: c.charms, equipment: c.equipment });
+    const r = simulateRuns({ ...opts, charms: c.charms, equipment: c.equipment, mods: c.mods });
     progress('');
     if (c.name === 'なし') baseline = r.meanCleared;
     const diff = r.meanCleared - baseline;

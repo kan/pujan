@@ -16,6 +16,8 @@ export interface HandRules {
   skipSequences?: boolean;
   /** 風見鶏: すべての風牌が役牌 */
   allWindsYakuhai?: boolean;
+  /** 巡り目: 891・912 を順子として扱う */
+  wrapSequences?: boolean;
 }
 
 export interface YakuEntry {
@@ -55,6 +57,8 @@ function meldKind(a: Kind, b: Kind, c: Kind, rules: HandRules): MeldKind | null 
       const n = [num(a), num(b), num(c)].sort((x, y) => x - y);
       if (n[1] === n[0] + 1 && n[2] === n[0] + 2) return 'sequence';
       if (rules.skipSequences && n[1] === n[0] + 3 && n[2] === n[0] + 6) return 'sequence';
+      // 891 は [0, 7, 8]、912 は [0, 1, 8]（num は数字から 1 を引いた値）
+      if (rules.wrapSequences && n[0] === 0 && n[2] === 8 && (n[1] === 1 || n[1] === 7)) return 'sequence';
     }
     if (num(a) === num(b) && num(b) === num(c) && new Set([suit(a), suit(b), suit(c)]).size === 3) {
       return 'sanshoku';

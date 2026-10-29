@@ -3,8 +3,8 @@
  * 局の画面（docs/SPEC.md §2.2）。プロトタイプの render() を上から順に写したもの。
  * ショップや和了のシートが開いている間も、直前の局を後ろに表示しておく。
  */
-import { computed, ref } from 'vue';
-import { MAX_CHARMS, bossOf, isDealerKyoku } from '@pujan/engine';
+import { computed, ref, watch } from 'vue';
+import { MAX_CHARMS, SOME_COLORS, bossOf, isDealerKyoku, turnLimit, type ConsumableId } from '@pujan/engine';
 import { useGameStore } from '@/stores/game';
 import { WIND_NAMES, bossDef, consumableDef, modifiedKinds, roundLabel } from '@/lib/labels';
 import HandArea from './HandArea.vue';
@@ -22,7 +22,35 @@ const round = computed(() => run.value.round);
 /** 牌山を改造した（持ち物のボタンに印を出す） */
 const modded = computed(() => modifiedKinds(run.value).size > 0);
 
-const turnsLeft = computed(() => (k.value ? k.value.setup.mods.turns - k.value.turn : 0));
+const turnsLeft = computed(() => (k.value ? turnLimit(k.value) - k.value.turn : 0));
+
+/** 色を選んでいる染め粉の番号（持ち物の消耗品の何番目か） */
+const dyeIndex = ref<number | null>(null);
+/** 色の選択を出す（局が進んで染め粉が使えなくなったら閉じる） */
+const pickingDye = computed(
+  () => dyeIndex.value !== null && run.value.consumables[dyeIndex.value] === 'some' && store.consumableUsable('some'),
+);
+
+// 局が進んだら（打牌・和了・次の局）色の選択を閉じる。開いたままだと、次に使えるときに勝手に出てくる
+watch(
+  () => store.kyoku,
+  () => (dyeIndex.value = null),
+);
+
+function tapConsumable(id: ConsumableId, index: number) {
+  if (id === 'some') {
+    dyeIndex.value = dyeIndex.value === index ? null : index;
+    return;
+  }
+  dyeIndex.value = null;
+  store.act({ type: 'useConsumable', index });
+}
+
+function useDye(color: number) {
+  if (dyeIndex.value === null) return;
+  store.act({ type: 'useConsumable', index: dyeIndex.value, color });
+  dyeIndex.value = null;
+}
 const boss = computed(() => {
   const id = bossOf(run.value);
   return id ? bossDef(id) : null;
@@ -73,7 +101,7 @@ const hint = computed(() => {
         <span class="rd">{{ roundLabel(run.wave, round.kyoku, round.honba, isDealerKyoku(run)) }}</span>
         <span v-if="k" class="tn" :class="{ last: turnsLeft === 0, low: turnsLeft > 0 && turnsLeft <= 3 }">
           <template v-if="turnsLeft === 0"><b>最終巡</b></template>
-          <template v-else>巡 <b>{{ k.turn }}</b>/{{ k.setup.mods.turns }}・残り{{ turnsLeft }}</template>
+          <template v-else>巡 <b>{{ k.turn }}</b>/{{ turnLimit(k) }}・残り{{ turnsLeft }}</template>
         </span>
         <span class="sc">{{ round.score.toLocaleString() }}<small> / {{ round.target.toLocaleString() }}</small></span>
       </div>
@@ -106,12 +134,21 @@ const hint = computed(() => {
         v-for="(id, i) in run.consumables"
         :key="`${id}-${i}`"
         class="c use"
+        :class="{ on: pickingDye && dyeIndex === i }"
         type="button"
+        :title="consumableDef(id).description"
         :disabled="!store.consumableUsable(id)"
-        @click="store.act({ type: 'useConsumable', index: i })"
+        @click="tapConsumable(id, i)"
       >
         {{ consumableDef(id).name }}
       </button>
+    </div>
+    <div v-if="pickingDye" class="info inv dye" role="group" aria-label="染め粉で残す色">
+      <span>残す色</span>
+      <button v-for="(name, color) in SOME_COLORS" :key="name" class="c use" type="button" @click="useDye(color)">
+        {{ name }}
+      </button>
+      <button class="c" type="button" @click="dyeIndex = null">やめる</button>
     </div>
 
     <button

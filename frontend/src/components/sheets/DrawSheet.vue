@@ -29,6 +29,7 @@ const message = computed(() => {
     <h2>流局<span class="pts">{{ deltaText }}</span></h2>
     <p class="note">{{ message }}</p>
     <p v-if="result.stickLost" class="note">リーチ棒{{ result.stickLost }}点は没収です。</p>
+    <p v-else-if="store.kyoku?.riichi" class="note">平常心で、リーチ棒{{ store.kyoku.riichi.stick }}点は戻ります。</p>
     <button class="btn win" type="button" @click="store.act({ type: 'settle' })">{{ settleLabel(store.run) }}</button>
   </SheetLayer>
 </template>

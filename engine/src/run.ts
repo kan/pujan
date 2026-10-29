@@ -9,6 +9,8 @@ import {
   CHARMS,
   CONSUMABLES,
   EQUIPMENT,
+  GOLD_MONEY,
+  GOLD_PER_MOD,
   MAX_CHARMS,
   MAX_CONSUMABLES,
   MODS,
@@ -145,6 +147,8 @@ export interface RunOptions {
   base?: BaseRules;
   /** 最初から持たせるお守りと設備の追加（シミュレーション用） */
   loadout?: Loadout;
+  /** 最初から当てておく牌の改造（シミュレーション用） */
+  mods?: readonly { id: ModId; kind: Kind }[];
 }
 
 /** 新しいラン。ルールと始めの持ち物は、始めの条件（雀士・段位）から決まる */
@@ -153,6 +157,11 @@ export function createRun(seed: number, options: RunOptions = {}): RunState {
   const rules = runRulesFor(start);
   const base = options.base ?? rules.base;
   const [rng, round] = newRound(createRng(mix32(seed)), 0, rules.targets);
+  let composition = defaultComposition(base.redFives);
+  for (const m of options.mods ?? []) {
+    if (!canModify(composition, m.id, m.kind)) throw new Error(`cannot apply ${m.id} to ${m.kind}`);
+    composition = applyMod(composition, m.id, m.kind);
+  }
   return {
     seed,
     rng,
@@ -165,7 +174,7 @@ export function createRun(seed: number, options: RunOptions = {}): RunState {
     equipment: [...rules.equipment, ...(options.loadout?.equipment ?? [])],
     consumables: [],
     yakuLevels: {},
-    composition: defaultComposition(base.redFives),
+    composition,
     round,
     phase: 'kyoku',
     shop: null,
@@ -188,7 +197,7 @@ export function beginKyoku(run: RunState): { run: RunState; kyoku: KyokuState } 
   const kyoku = startKyoku({
     rng: createRng(mix32(raw)),
     composition: run.composition,
-    mods: modifiersFor(run.base, { charms: run.charms, equipment: run.equipment }, bossOf(run)),
+    mods: modifiersFor(run.base, { charms: run.charms, equipment: run.equipment }, bossOf(run), isDealerKyoku(run)),
     bakaze: bakazeOf(run),
     seat: seatOf(run),
     dealer: isDealerKyoku(run),
@@ -202,7 +211,7 @@ export function beginKyoku(run: RunState): { run: RunState; kyoku: KyokuState } 
 export function moneyForWin(result: Extract<KyokuResult, { type: 'win' }>): number {
   const ev = result.win.evaluation;
   const base = ev.yakuman ? 6 : 2 + Math.min(4, Math.floor(ev.han / 2));
-  return base + result.gold * 2;
+  return base + result.gold * GOLD_MONEY;
 }
 
 /** 局の点数の増減（リーチ棒は宣言時ではなく精算時に引く） */
@@ -312,19 +321,20 @@ function rollOffer(rng: number, run: RunState, offers: readonly Offer[]): [numbe
     let pick: number;
     [r, roll] = nextFloat(r);
     let offer: Offer;
-    if (roll < 0.4) {
+    // 種類の出やすさ: お守り 35%・消耗品 20%・牌の改造 15%・役の巻物 15%・設備 15%
+    if (roll < 0.35) {
       [r, pick] = nextInt(r, CHARMS.length);
       const c = CHARMS[pick];
       // 役で解禁されるお守りは、その役で和了ったことがあるときだけ並ぶ
       if (!charmAvailable(c.id, run.start.unlockedYaku)) continue;
       offer = { kind: 'charm', id: c.id, price: c.price ?? PRICES.charm, sold: false };
-    } else if (roll < 0.6) {
+    } else if (roll < 0.55) {
       [r, pick] = nextInt(r, CONSUMABLES.length);
       offer = { kind: 'consumable', id: CONSUMABLES[pick].id, price: PRICES.consumable, sold: false };
-    } else if (roll < 0.75) {
+    } else if (roll < 0.7) {
       [r, pick] = nextInt(r, MODS.length);
       offer = { kind: 'mod', id: MODS[pick].id, price: PRICES.mod, sold: false };
-    } else if (roll < 0.9) {
+    } else if (roll < 0.85) {
       // 役の巻物は、その役で和了ったことがある役だけ（まだなければ別の品を引き直す）
       const yaku = scrollYakuAvailable(run.start.unlockedYaku);
       if (!yaku.length) continue;
@@ -385,14 +395,14 @@ export function canModify(comp: Composition, mod: ModId, k: Kind): boolean {
   if (!Number.isInteger(k) || k < 0 || k >= KIND_COUNT) return false;
   if (mod === 'nuki') return comp.count[k] > 0;
   if (mod === 'utsushi') return comp.count[k] > 0 && comp.count[k] < 5;
-  if (mod === 'shu') return comp.red[k] < comp.count[k];
+  // 朱塗り・金箔は、赤牌でも金牌でもない牌が残っているときだけ（1 枚の牌は赤と金を兼ねない）
   return comp.red[k] + comp.gold[k] < comp.count[k];
 }
 
 function applyMod(comp: Composition, mod: ModId, k: Kind): Composition {
   const c = { count: comp.count.slice(), red: comp.red.slice(), gold: comp.gold.slice() };
-  if (mod === 'shu') c.red[k] = Math.min(c.count[k], c.red[k] + 2);
-  else if (mod === 'kin') c.gold[k] = Math.min(c.count[k] - c.red[k], c.gold[k] + 1);
+  if (mod === 'shu') c.red[k] = c.count[k] - c.gold[k];
+  else if (mod === 'kin') c.gold[k] = Math.min(c.count[k] - c.red[k], c.gold[k] + GOLD_PER_MOD);
   else if (mod === 'nuki') {
     c.count[k] = 0;
     c.red[k] = 0;

@@ -43,6 +43,16 @@ describe('evaluateFive', () => {
     expect(evaluateFive([m(1), m(4), m(7), p(2), p(2)], { ...rules, skipSequences: true })).not.toBeNull();
   });
 
+  it('巡り目があると 891・912 が順子になる', () => {
+    const r = { ...rules, wrapSequences: true };
+    expect(evaluateFive([m(8), m(9), m(1), p(2), p(2)], rules)).toBeNull();
+    expect(evaluateFive([m(8), m(9), m(1), p(2), p(2)], r)).not.toBeNull();
+    expect(names([s(9), s(1), s(2), s(5), s(5)], r)).toEqual(['清一色']);
+    // 色が違う組や、9 をまたがない組（781 など）は順子にならない
+    expect(evaluateFive([m(8), p(9), m(1), p(2), p(2)], r)).toBeNull();
+    expect(evaluateFive([m(7), m(8), m(1), p(2), p(2)], r)).toBeNull();
+  });
+
   it('色眼鏡で萬子と索子をまたぐ順子と清一色', () => {
     const r = { ...rules, sameColorManSou: true };
     expect(names([m(2), s(3), m(4), m(6), m(6)], r)).toEqual(['断么九', '清一色']);

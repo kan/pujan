@@ -6,6 +6,13 @@
  */
 import type { DoraMode } from './win.js';
 
+/** 設備の上座で、親番の局に足す巡の数 */
+export const DEALER_EXTRA_TURNS = 3;
+/** 牌の改造の金箔で、1 回に金牌にする枚数 */
+export const GOLD_PER_MOD = 2;
+/** 和了に使った金牌 1 枚の祝儀 */
+export const GOLD_MONEY = 2;
+
 export type CharmId =
   | 'hayazashi'
   | 'yasude'
@@ -22,8 +29,17 @@ export type CharmId =
   | 'hakushi'
   | 'chokin'
   | 'nolimit';
-export type EquipId = 'hold' | 'next' | 'turns' | 'dora2' | 'joker' | 'jokerplus';
-export type ConsumableId = 'tsumo' | 'hiroi' | 'nozoki' | 'irekae';
+export type EquipId =
+  | 'hold'
+  | 'next'
+  | 'turns'
+  | 'dora2'
+  | 'joker'
+  | 'jokerplus'
+  | 'kamiza'
+  | 'heijoshin'
+  | 'meguri';
+export type ConsumableId = 'tsumo' | 'hiroi' | 'nozoki' | 'irekae' | 'some' | 'encho';
 export type ModId = 'shu' | 'kin' | 'nuki' | 'utsushi';
 export type BossId = 'seal' | 'fog' | 'shibari' | 'short' | 'nobonus';
 
@@ -72,18 +88,39 @@ export const EQUIPMENT: readonly EquipDef[] = [
   { id: 'dora2', name: '招き猫', description: 'ドラ表示が2枚' },
   { id: 'joker', name: '化け猫', description: 'ドラ牌が万能牌になる（ドラの翻はなくなる）' },
   { id: 'jokerplus', name: '猫に小判', description: '万能牌として使ってもドラの翻が残る', requires: 'joker' },
+  { id: 'kamiza', name: '上座', description: `親番の局は巡数＋${DEALER_EXTRA_TURNS}` },
+  { id: 'heijoshin', name: '平常心', description: 'リーチが2翻になり、流局してもリーチ棒が戻る' },
+  { id: 'meguri', name: '巡り目', description: '891・912を順子として扱う' },
 ];
 
-export const CONSUMABLES: readonly ItemDef<ConsumableId>[] = [
+/** 延長札で延びる巡の数 */
+export const EXTEND_TURNS = 3;
+
+export interface ConsumableDef extends ItemDef<ConsumableId> {
+  /** 手を変えないので、リーチ中も使える */
+  usableInRiichi?: boolean;
+}
+
+export const CONSUMABLES: readonly ConsumableDef[] = [
   { id: 'tsumo', name: 'ツモ直し', description: '今のツモ牌を山の底へ戻して引き直す' },
   { id: 'hiroi', name: '河拾い', description: '最後に捨てた牌をツモ牌として拾う' },
   { id: 'nozoki', name: '山覗き', description: 'この局の間、山の先5枚まで見える' },
   { id: 'irekae', name: '総入れ替え', description: '手牌とツモ牌を山に戻して配り直す（巡は進まない）' },
+  { id: 'some', name: '染め粉', description: 'この局だけ、選んだ色（萬子・筒子・索子・字牌）以外の牌を山から半分抜く' },
+  {
+    id: 'encho',
+    name: '延長札',
+    description: `最終巡で使うと、この局の巡数＋${EXTEND_TURNS}（1局に1回。リーチ中も使える）`,
+    usableInRiichi: true,
+  },
 ];
 
+/** 消耗品の染め粉で選ぶ色（0: 萬子・1: 筒子・2: 索子・3: 字牌。tiles.ts の suit と同じ番号） */
+export const SOME_COLORS = ['萬子', '筒子', '索子', '字牌'] as const;
+
 export const MODS: readonly ItemDef<ModId>[] = [
-  { id: 'shu', name: '朱塗り', description: '選んだ牌の2枚を赤牌にする' },
-  { id: 'kin', name: '金箔', description: '選んだ牌の1枚を金牌にする（和了に使うと祝儀＋2）' },
+  { id: 'shu', name: '朱塗り', description: '選んだ牌を全部赤牌にする' },
+  { id: 'kin', name: '金箔', description: `選んだ牌の${GOLD_PER_MOD}枚を金牌にする（和了に使うと1枚につき祝儀＋${GOLD_MONEY}）` },
   { id: 'nuki', name: '抜き取り', description: '選んだ牌を山から全部抜く' },
   { id: 'utsushi', name: '写し', description: '選んだ牌を5枚に増やす' },
 ];
@@ -146,6 +183,11 @@ export interface Modifiers {
   sameColorManSou: boolean;
   skipSequences: boolean;
   allWindsYakuhai: boolean;
+  wrapSequences: boolean;
+  /** リーチの翻（通常 1、平常心で 2） */
+  riichiHan: number;
+  /** 流局してもリーチ棒が戻る（平常心） */
+  riichiStickBack: boolean;
   hakuJoker: boolean;
   earlyWinBonus: boolean;
   ippatsuHan: number;
@@ -163,11 +205,16 @@ export interface Loadout {
   equipment: readonly EquipId[];
 }
 
-export function modifiersFor(base: BaseRules, loadout: Loadout, boss: BossId | null): Modifiers {
+/** 1 局のルール。dealer は親番の局か（上座の巡数に効く） */
+export function modifiersFor(base: BaseRules, loadout: Loadout, boss: BossId | null, dealer = false): Modifiers {
   const has = (id: CharmId) => loadout.charms.includes(id);
   const eq = (id: EquipId) => loadout.equipment.includes(id);
   return {
-    turns: base.turns + (eq('turns') ? 2 : 0) - (boss === 'short' ? 4 : 0),
+    turns:
+      base.turns +
+      (eq('turns') ? 2 : 0) +
+      (dealer && eq('kamiza') ? DEALER_EXTRA_TURNS : 0) -
+      (boss === 'short' ? 4 : 0),
     holdSlots: boss === 'seal' ? 0 : base.holdSlots + (eq('hold') ? 1 : 0),
     next: boss === 'fog' ? 0 : base.next + (eq('next') ? 1 : 0),
     haitei: base.haitei,
@@ -181,6 +228,9 @@ export function modifiersFor(base: BaseRules, loadout: Loadout, boss: BossId | n
     sameColorManSou: has('iromegane'),
     skipSequences: has('tobiishi'),
     allWindsYakuhai: has('kazamidori'),
+    wrapSequences: eq('meguri'),
+    riichiHan: eq('heijoshin') ? 2 : 1,
+    riichiStickBack: eq('heijoshin'),
     hakuJoker: has('hakushi'),
     earlyWinBonus: has('hayazashi'),
     ippatsuHan: has('ippatsuya') ? 2 : 0,

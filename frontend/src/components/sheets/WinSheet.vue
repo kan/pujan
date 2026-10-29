@@ -1,7 +1,7 @@
 <script setup lang="ts">
 /** 和了（docs/SPEC.md §2.3）。和了牌、点数の内訳、祝儀。親の和了では「和了やめ」「連荘する」を選ぶ */
 import { computed } from 'vue';
-import { allTiles, byKind, doraOf, isDealerKyoku, moneyForWin, notenPenalty, tileName } from '@pujan/engine';
+import { GOLD_MONEY, allTiles, byKind, doraOf, isDealerKyoku, moneyForWin, notenPenalty, tileName } from '@pujan/engine';
 import { useGameStore } from '@/stores/game';
 import { settleLabel } from '@/lib/labels';
 import MjTile from '../MjTile.vue';
@@ -45,6 +45,9 @@ const ura = computed(() =>
         <span>{{ l.label }}</span><span>{{ l.value }}</span>
       </template>
       <span>祝儀</span><span>+{{ moneyForWin(result) }}</span>
+      <template v-if="result.gold">
+        <span class="sub">うち金牌{{ result.gold }}枚</span><span class="sub">+{{ result.gold * GOLD_MONEY }}</span>
+      </template>
     </div>
     <p v-if="k.riichi" class="note">
       <template v-if="ura.length">

@@ -229,6 +229,8 @@ function engineState(sc: Scenario): KyokuState {
     redealt: false,
     riichi: sc.riichiTurn === null ? null : { turn: sc.riichiTurn, stick: mods.riichiCost },
     peek: false,
+    extraTurns: 0,
+    removed: [],
     waits: [],
     win: null,
     result: null,

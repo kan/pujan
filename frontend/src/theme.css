@@ -282,6 +282,11 @@ h1 .beta {
   opacity: 0.4;
   cursor: default;
 }
+/* 色を選んでいる染め粉 */
+.inv .use.on {
+  border-style: solid;
+  background: rgba(0, 0, 0, 0.12);
+}
 .badge {
   background: var(--gold);
   color: var(--gold-ink);
@@ -748,6 +753,12 @@ span.tile {
 .yakulist span:nth-child(even) {
   color: var(--gold);
   text-align: right;
+}
+/* 内訳の行（祝儀のうちの金牌の分など） */
+.yakulist span.sub {
+  font-size: 13px;
+  color: var(--muted);
+  padding-left: 1em;
 }
 .tilesline {
   display: flex;

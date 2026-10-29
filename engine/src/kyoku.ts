@@ -5,10 +5,10 @@
  * 同じ初期状態に同じ操作を順に与えれば同じ結果になる（操作ログの再生）。
  */
 import { addHan, addYakuman, yakuEntry, type YakuEntry } from './hand.js';
-import type { ConsumableId, Modifiers } from './items.js';
+import { CONSUMABLES, EXTEND_TURNS, SOME_COLORS, type ConsumableId, type Modifiers } from './items.js';
 import { shuffle } from './rng.js';
 import { basePoints, finalizeScore, type FinalizeContext, type FinalScore } from './score.js';
-import { HAKU, KIND_COUNT, byKind, doraOf, type Kind, type Tile } from './tiles.js';
+import { HAKU, KIND_COUNT, byKind, doraOf, suit, type Kind, type Tile } from './tiles.js';
 import { bestWin, waits, type Win, type WinContext } from './win.js';
 
 /** 牌山の構成。牌の改造（朱塗り・金箔・抜き取り・写し）で変わり、ランの間ずっと残る */
@@ -48,7 +48,8 @@ export type KyokuAction =
   | { type: 'riichi'; zone: Zone; index: number }
   | { type: 'tsumo' }
   | { type: 'redeal' }
-  | { type: 'consumable'; id: ConsumableId };
+  /** 消耗品を使う。染め粉は残す色（color: 0 萬子・1 筒子・2 索子・3 字牌）が要る */
+  | { type: 'consumable'; id: ConsumableId; color?: number };
 
 /** 消耗品を除いた局の操作（消耗品は持ち物から外す必要があるので、ランの側で扱う） */
 export type KyokuMove = Exclude<KyokuAction, { type: 'consumable' }>;
@@ -90,6 +91,10 @@ export interface KyokuState {
   riichi: { turn: number; stick: number } | null;
   /** 山覗きを使った */
   peek: boolean;
+  /** 延長札で延びた巡の数（1 局の巡数は turnLimit で引く） */
+  extraTurns: number;
+  /** 染め粉で山から抜いた牌（待ちの残り枚数で、見えた牌と同じく数から引く） */
+  removed: Tile[];
   /** 直前の打牌のあとの待ち（null は計算を省いた聴牌） */
   waits: Kind[] | null;
   /** 今のツモで和了れる手（和了れなければ null） */
@@ -161,12 +166,22 @@ export function startKyoku(setup: KyokuSetup, order?: WallOrder): KyokuState {
     redealt: false,
     riichi: null,
     peek: false,
+    extraTurns: 0,
+    removed: [],
     waits: [],
     win: null,
     result: null,
     setup: { ...rest, copies: composition.count.slice() },
   };
   return drawNext(state);
+}
+
+/**
+ * この局の巡数（持ち物とボスで決まる巡数に、延長札の分を足したもの）。
+ * 局の巡数はここから読む（setup.mods.turns には延長札の分が入らない）
+ */
+export function turnLimit(s: KyokuState): number {
+  return s.setup.mods.turns + s.extraTurns;
 }
 
 export function allTiles(s: KyokuState): Tile[] {
@@ -186,6 +201,7 @@ export function winContext(s: KyokuState, withBonus: boolean): WinContext {
       sameColorManSou: m.sameColorManSou,
       skipSequences: m.skipSequences,
       allWindsYakuhai: m.allWindsYakuhai,
+      wrapSequences: m.wrapSequences,
     },
     isJoker: (k) => isJoker(s, k),
     copies: (k) => s.setup.copies[k],
@@ -206,10 +222,10 @@ export function judge(s: KyokuState): Win | null {
   if (!w) return null;
   const m = s.setup.mods;
   const extra: YakuEntry[] = [];
-  if (s.riichi) extra.push(yakuEntry('リーチ', 1));
+  if (s.riichi) extra.push(yakuEntry('リーチ', m.riichiHan));
   if (s.riichi && m.ippatsuHan && s.turn === s.riichi.turn + 1) extra.push(yakuEntry('一発屋', m.ippatsuHan));
   if (m.earlyWinBonus && s.turn <= 6) extra.push(yakuEntry('早指し', 1));
-  if (m.haitei && s.turn === m.turns) extra.push(yakuEntry('海底', 1));
+  if (m.haitei && s.turn === turnLimit(s)) extra.push(yakuEntry('海底', 1));
   let ev = addHan(w.evaluation, extra);
   if (s.turn === 1) ev = addYakuman(ev, '天和');
   else if (s.turn === 2 && s.discards === 0) ev = addYakuman(ev, '地和');
@@ -227,12 +243,12 @@ function endWithDraw(s: KyokuState): KyokuState {
     ...s,
     drawn: [],
     win: null,
-    result: { type: 'draw', tenpai, fee, penalty, stickLost: s.riichi?.stick ?? 0 },
+    result: { type: 'draw', tenpai, fee, penalty, stickLost: s.setup.mods.riichiStickBack ? 0 : (s.riichi?.stick ?? 0) },
   };
 }
 
 function drawNext(s: KyokuState): KyokuState {
-  if (s.turn >= s.setup.mods.turns || !s.wall.length) return endWithDraw(s);
+  if (s.turn >= turnLimit(s) || !s.wall.length) return endWithDraw(s);
   const wall = s.wall.slice();
   const tile = wall.pop()!;
   const next: KyokuState = { ...s, wall, turn: s.turn + 1, drawn: [tile] };
@@ -248,7 +264,7 @@ function afterAction(s: KyokuState): KyokuState {
   let next: KyokuState = { ...s, hand, drawn };
   if (drawn.length) return { ...next, win: judge(next) };
   next = { ...next, win: null, waits: waits([...hand, ...(s.hold.filter(Boolean) as Tile[])], winContext(next, false)) };
-  if (next.turn >= next.setup.mods.turns) return endWithDraw(next);
+  if (next.turn >= turnLimit(next)) return endWithDraw(next);
   return drawNext(next);
 }
 
@@ -288,7 +304,10 @@ export function canRiichi(s: KyokuState, zone: Zone, index: number): boolean {
 }
 
 export function canUseConsumable(s: KyokuState, id: ConsumableId): boolean {
-  if (!isActing(s) || s.riichi) return false;
+  if (!isActing(s)) return false;
+  if (s.riichi && !CONSUMABLES.find((c) => c.id === id)?.usableInRiichi) return false;
+  // 延長札は最終巡のツモのあと、打牌の前だけ（1 局に 1 回）。山が尽きていれば延ばしても引けない
+  if (id === 'encho') return s.turn === turnLimit(s) && s.extraTurns === 0 && s.wall.length > 0;
   if (id === 'hiroi') return s.river.length > 0;
   if (id === 'nozoki') return !s.peek;
   return true;
@@ -339,7 +358,7 @@ export function step(s: KyokuState, action: KyokuAction): KyokuState {
       return { ...next, win: judge(next) };
     }
     case 'consumable':
-      return useConsumable(s, action.id);
+      return useConsumable(s, action.id, action.color);
     case 'tsumo':
       return declareWin(s);
     default:
@@ -347,10 +366,33 @@ export function step(s: KyokuState, action: KyokuAction): KyokuState {
   }
 }
 
-function useConsumable(s: KyokuState, id: ConsumableId): KyokuState {
+/** 染め粉: 残す色以外の牌を、山から半分（端数は切り捨て）抜く。抜く牌は局の乱数で選び、山の並びは保つ */
+function dye(s: KyokuState, color: number): KyokuState {
+  const others = s.wall.flatMap((t, i) => (suit(t.kind) === color ? [] : [i]));
+  const [rng, shuffled] = shuffle(s.rng, others);
+  const drop = new Set(shuffled.slice(0, Math.floor(others.length / 2)));
+  return {
+    ...s,
+    rng,
+    wall: s.wall.filter((_, i) => !drop.has(i)),
+    removed: [...s.removed, ...s.wall.filter((_, i) => drop.has(i))],
+  };
+}
+
+function useConsumable(s: KyokuState, id: ConsumableId, color?: number): KyokuState {
   if (!canUseConsumable(s, id)) throw new Error(`cannot use ${id}`);
+  // 操作ログは信頼できない入力なので、色を取らない消耗品に色が付いていたら拒む
+  if (id !== 'some' && color !== undefined) throw new Error(`${id} takes no color`);
   let next: KyokuState;
-  if (id === 'tsumo') {
+  if (id === 'some') {
+    // 操作ログは信頼できない入力なので、色の番号もここで確かめる
+    if (color === undefined || !Number.isInteger(color) || color < 0 || color >= SOME_COLORS.length) {
+      throw new Error('invalid color');
+    }
+    next = dye(s, color);
+  } else if (id === 'encho') {
+    next = { ...s, extraTurns: EXTEND_TURNS };
+  } else if (id === 'tsumo') {
     const wall = s.wall.slice();
     const [old, ...restDrawn] = s.drawn;
     wall.unshift(old);
@@ -402,6 +444,6 @@ function declareWin(s: KyokuState): KyokuState {
 
 /** 待ち牌の残り枚数（見えている牌から数える） */
 export function remainingOf(s: KyokuState, k: Kind): number {
-  const seen = [...allTiles(s), ...s.river, ...s.indicators].filter((t) => t.kind === k).length;
+  const seen = [...allTiles(s), ...s.river, ...s.indicators, ...s.removed].filter((t) => t.kind === k).length;
   return Math.max(0, s.setup.copies[k] - seen);
 }
