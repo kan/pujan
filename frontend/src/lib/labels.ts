@@ -6,6 +6,8 @@ import {
   EQUIPMENT,
   GACHA,
   KYOKU_PER_WAVE,
+  MAX_CHARMS,
+  innateCharms,
   OFFER_KIND_LABEL,
   MODS,
   WAVE_COUNT,
@@ -35,6 +37,12 @@ export const charmDef = (id: CharmId) => CHARMS.find((c) => c.id === id)!;
 export const equipDef = (id: EquipId) => EQUIPMENT.find((c) => c.id === id)!;
 export const consumableDef = (id: ConsumableId) => CONSUMABLES.find((c) => c.id === id)!;
 export const bossDef = (id: BossId) => BOSSES.find((c) => c.id === id)!;
+
+/** お守りの枠（「お守り 2/5（＋固有 1）」）。固有のお守りは枠に数えないので、別に書く */
+export function charmSlotText(run: RunState): string {
+  const innate = innateCharms(run).length;
+  return `お守り ${run.charms.length}/${MAX_CHARMS}${innate ? `（＋固有 ${innate}）` : ''}`;
+}
 
 /** 福引きの説明（ショップとヘルプで同じ文を使う） */
 export const GACHA_TEXT = `祝儀${GACHA.price}で、${(Object.keys(GACHA.weights) as (keyof typeof GACHA.weights)[])

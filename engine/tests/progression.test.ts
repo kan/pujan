@@ -17,7 +17,7 @@ import {
   type Progress,
   type RunStart,
 } from '../src/progression.js';
-import type { Offer } from '../src/run.js';
+import { buyBlocker, createRun, ownedCharms, reroll, type Offer } from '../src/run.js';
 import { botAction } from '../src/sim.js';
 
 /** AI に 1 ランを遊ばせる（ショップでは何も買わない）。開いたショップの品をすべて集める */
@@ -78,11 +78,32 @@ describe('雀士と段位のルール', () => {
     const g = createGame(1, { start: { ...DEFAULT_START, character: 'menzen' } });
     expect(g.run.base.holdSlots).toBe(0);
     expect(g.run.base.next).toBe(3);
-    expect(g.run.charms).toEqual(['damaten']);
+    // 固有のお守りは枠に数えないので、買ったお守りの一覧（charms）には入らない
+    expect(g.run.charms).toEqual([]);
+    expect(ownedCharms(g.run)).toEqual(['damaten']);
+    expect(g.kyoku!.setup.mods.menzenHan).toBe(2);
     expect(g.kyoku!.hold).toHaveLength(0);
     const y = createGame(1, { start: { ...DEFAULT_START, character: 'yakuman', dan: 2 } });
     expect(y.run.equipment).toEqual(['joker']);
     expect(y.run.money).toBe(0);
+  });
+
+  it('固有のお守りは枠に数えず、売れず、ショップにも並ばない', () => {
+    let g = createGame(2, { start: { ...DEFAULT_START, character: 'oya' } });
+    while (g.kyoku) g = apply(g, g.kyoku.result ? { type: 'settle' } : botAction(g.kyoku, { target: '和了形' }));
+    // 買ったお守りがなければ売れない（固有の親父の背中は売る対象にならない）
+    expect(() => apply(g, { type: 'sell', index: 0 })).toThrow();
+    // 枠は買ったお守りだけで数える: 5 つ買っていても固有のぶんで満杯にならない
+    const four = ['hayazashi', 'yasude', 'damaten', 'ippatsuya'] as const;
+    const offer = { kind: 'charm' as const, id: 'bakuchi' as const, price: 5, sold: false };
+    const run = { ...g.run, money: 99, charms: [...four], shop: [offer] };
+    expect(buyBlocker(run, 0)).toBeNull();
+    expect(buyBlocker({ ...run, charms: [...four, 'chokin' as const] }, 0)).toBe('charmsFull');
+    // 固有のお守りは「持っている」ので、ショップに並ばない
+    for (let i = 0; i < 20; i++) {
+      for (const o of reroll({ ...g.run, money: 99 }).shop ?? []) expect(o.kind === 'charm' && o.id === 'oyaji').toBe(false);
+      g = { ...g, run: { ...g.run, rng: g.run.rng + 1 } };
+    }
   });
 
   it('雀聖のショップは品が 2 つ', () => {

@@ -33,6 +33,7 @@ import { defaultComposition, startKyoku, type Composition, type KyokuResult, typ
 import {
   DEFAULT_START,
   YAKUMAN_MARK,
+  characterOf,
   charmAvailable,
   runRulesFor,
   scrollYakuAvailable,
@@ -187,7 +188,8 @@ export function createRun(seed: number, options: RunOptions = {}): RunState {
     yakuWon: [],
     wave: 0,
     money: rules.startMoney,
-    charms: [...rules.charms, ...(options.loadout?.charms ?? [])],
+    // 雀士の固有のお守りは入れない（枠に数えず売れないので、雀士から毎回求める。innateCharms）
+    charms: [...(options.loadout?.charms ?? [])],
     equipment: [...rules.equipment, ...(options.loadout?.equipment ?? [])],
     consumables: [],
     yakuLevels: {},
@@ -203,6 +205,18 @@ export function createRun(seed: number, options: RunOptions = {}): RunState {
   };
 }
 
+/**
+ * 雀士の固有のお守り（かめの黙聴など）。お守りの枠に数えず、売れない。
+ * ランの状態の charms には入れず、始めの条件の雀士から求める
+ */
+export const innateCharms = (run: RunState): readonly CharmId[] => characterOf(run.start.character)?.charms ?? [];
+/** 雀士の固有の設備（ねこの化け猫）。設備はもともと枠がなく売れないので、印を付けるためだけに使う */
+export const innateEquipment = (run: RunState): readonly EquipId[] => characterOf(run.start.character)?.equipment ?? [];
+/** 効いているお守りすべて（固有のお守り＋買ったお守り）。run.charms は枠の中身（買ったお守り）だけ */
+export const ownedCharms = (run: RunState): CharmId[] => [...innateCharms(run), ...run.charms];
+/** 局のルールに効く持ち物。お守りの効果はここからだけ読む（run.charms を直接読むと固有のお守りが抜ける） */
+export const loadoutOf = (run: RunState): Loadout => ({ charms: ownedCharms(run), equipment: run.equipment });
+
 export const bakazeOf = (run: RunState): Kind => EAST + run.wave;
 export const isDealerKyoku = (run: RunState): boolean => run.round.kyoku === run.round.dealer;
 /** 自風: 親の局は東、そこから逆算して南・西・北 */
@@ -216,7 +230,7 @@ export function beginKyoku(run: RunState): { run: RunState; kyoku: KyokuState } 
   const kyoku = startKyoku({
     rng: createRng(mix32(raw)),
     composition: run.composition,
-    mods: modifiersFor(run.base, { charms: run.charms, equipment: run.equipment }, bossOf(run), isDealerKyoku(run)),
+    mods: modifiersFor(run.base, loadoutOf(run), bossOf(run), isDealerKyoku(run)),
     bakaze: bakazeOf(run),
     seat: seatOf(run),
     dealer: isDealerKyoku(run),
@@ -336,7 +350,7 @@ export function runSummary(run: RunState): RunSummary {
 /* ---------- ショップ ---------- */
 
 function offerTaken(run: RunState, offers: readonly Offer[], o: Offer): boolean {
-  if (o.kind === 'charm' && run.charms.includes(o.id)) return true;
+  if (o.kind === 'charm' && ownedCharms(run).includes(o.id)) return true;
   if (o.kind === 'equip' && run.equipment.includes(o.id)) return true;
   return offers.some(
     (x) => !x.sold && x.kind === o.kind && (x.kind === 'scroll' ? x.yaku === (o as { yaku: string }).yaku : (x as { id: string }).id === (o as { id: string }).id),

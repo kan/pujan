@@ -129,7 +129,8 @@ export const CHARACTERS: readonly CharacterDef[] = [
   },
 ];
 
-const characterOf = (id: string): CharacterDef | undefined => CHARACTERS.find((c) => c.id === id);
+/** 雀士の定義（知らない ID は undefined） */
+export const characterOf = (id: string): CharacterDef | undefined => CHARACTERS.find((c) => c.id === id);
 
 /** 雀士の名前（知らない ID はそのまま） */
 export const characterName = (id: string): string => characterOf(id)?.name ?? id;

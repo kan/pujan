@@ -4,7 +4,7 @@
  * ショップや和了のシートが開いている間も、直前の局を後ろに表示しておく。
  */
 import { computed, ref, watch } from 'vue';
-import { MAX_CHARMS, SOME_COLORS, bossOf, isDealerKyoku, turnLimit, type ConsumableId } from '@pujan/engine';
+import { MAX_CHARMS, SOME_COLORS, bossOf, innateCharms, isDealerKyoku, turnLimit, type ConsumableId } from '@pujan/engine';
 import { useGameStore } from '@/stores/game';
 import { WIND_NAMES, bossDef, consumableDef, modifiedKinds, roundLabel } from '@/lib/labels';
 import HandArea from './HandArea.vue';
@@ -21,6 +21,8 @@ const wind = computed(() => WIND_NAMES[run.value.wave]);
 const round = computed(() => run.value.round);
 /** 牌山を改造した（持ち物のボタンに印を出す） */
 const modded = computed(() => modifiedKinds(run.value).size > 0);
+/** 雀士の固有のお守りの数（枠の数とは別に、設備の数と同じ小さな印で出す） */
+const innateCount = computed(() => innateCharms(run.value).length);
 
 const turnsLeft = computed(() => (k.value ? turnLimit(k.value) - k.value.turn : 0));
 
@@ -127,6 +129,7 @@ const hint = computed(() => {
       <!-- 設備と牌山もここから見るので、お守りの数だけでなく「持ち物」と書く -->
       <button class="c" type="button" aria-haspopup="dialog" @click="emit('openInventory')">
         持ち物 <b>{{ run.charms.length }}/{{ MAX_CHARMS }}</b>
+        <span v-if="innateCount" class="sub">固有{{ innateCount }}</span>
         <span v-if="run.equipment.length" class="sub">設備{{ run.equipment.length }}</span>
         <span v-if="modded" class="sub">改造</span>
       </button>

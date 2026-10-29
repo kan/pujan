@@ -1,17 +1,25 @@
 <script setup lang="ts">
 /** 持ち物の一覧（お守り・設備・役の巻物のレベル・牌山）。局の画面・メニュー・ショップから開く */
 import { computed } from 'vue';
-import { MAX_CHARMS } from '@pujan/engine';
+import { innateCharms, innateEquipment } from '@pujan/engine';
 import { useGameStore } from '@/stores/game';
-import { charmDef, equipDef, modifiedKinds } from '@/lib/labels';
+import { charmDef, charmSlotText, equipDef, modifiedKinds } from '@/lib/labels';
 import SheetLayer from '../SheetLayer.vue';
 import WallGrid from '../WallGrid.vue';
 
 const emit = defineEmits<{ close: [] }>();
 const store = useGameStore();
 const run = computed(() => store.run);
-const charms = computed(() => run.value.charms.map(charmDef));
-const equipment = computed(() => run.value.equipment.map(equipDef));
+/** 固有のお守り（枠に数えない）を先に、買ったお守りを後に並べる */
+const innate = computed(() => innateCharms(run.value));
+const charms = computed(() => [
+  ...innate.value.map((id) => ({ ...charmDef(id), innate: true })),
+  ...run.value.charms.map((id) => ({ ...charmDef(id), innate: false })),
+]);
+const equipment = computed(() => {
+  const innateEq = innateEquipment(run.value);
+  return run.value.equipment.map((id) => ({ ...equipDef(id), innate: innateEq.includes(id) }));
+});
 const levels = computed(() => Object.entries(run.value.yakuLevels));
 const modded = computed(() => modifiedKinds(run.value).size > 0);
 </script>
@@ -21,20 +29,21 @@ const modded = computed(() => modifiedKinds(run.value).size > 0);
     <h2>持ち物<span class="pts">祝儀 {{ run.money }}</span></h2>
 
     <section class="inv-sec" aria-label="お守り">
-      <h3>お守り {{ charms.length }}/{{ MAX_CHARMS }}</h3>
+      <h3>{{ charmSlotText(run) }}</h3>
       <div v-if="charms.length" class="ref">
         <template v-for="c in charms" :key="c.id">
-          <span>{{ c.name }}</span><span class="h">{{ c.axis }}</span><span class="c">{{ c.description }}</span>
+          <span>{{ c.name }}</span><span class="h">{{ c.innate ? '固有' : c.axis }}</span><span class="c">{{ c.description }}</span>
         </template>
       </div>
       <p v-else class="note">まだありません</p>
+      <p v-if="innate.length" class="note">固有のお守りは雀士がはじめから持つもので、枠に数えず、売れません。</p>
     </section>
 
     <section class="inv-sec" aria-label="設備">
       <h3>設備 {{ equipment.length }}</h3>
       <div v-if="equipment.length" class="ref">
         <template v-for="e in equipment" :key="e.id">
-          <span>{{ e.name }}</span><span class="h" /><span class="c">{{ e.description }}</span>
+          <span>{{ e.name }}</span><span class="h">{{ e.innate ? '固有' : '' }}</span><span class="c">{{ e.description }}</span>
         </template>
       </div>
       <p v-else class="note">まだありません</p>

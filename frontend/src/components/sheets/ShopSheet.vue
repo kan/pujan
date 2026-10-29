@@ -17,13 +17,14 @@ import {
   canModify,
   gachaRefund,
   hasGacha,
+  innateCharms,
   type BuyBlocker,
   type GameAction,
   type Kind,
 } from '@pujan/engine';
 import { useGameStore } from '@/stores/game';
 import { OFFER_KIND_LABEL } from '@pujan/engine';
-import { GACHA_TEXT, charmDef, compositionText, consumableDef, equipDef, modifiedKinds, offerText } from '@/lib/labels';
+import { GACHA_TEXT, charmDef, charmSlotText, compositionText, consumableDef, equipDef, modifiedKinds, offerText } from '@/lib/labels';
 import MjTile from '../MjTile.vue';
 import SheetLayer from '../SheetLayer.vue';
 
@@ -69,6 +70,8 @@ function pick(kind: Kind) {
 }
 
 const gachaOk = computed(() => canGacha(run.value));
+/** 雀士の固有のお守り */
+const innate = computed(() => innateCharms(run.value));
 /** 福引きで当たった品の名前と説明。役の巻物はもう受け取ったので、受け取る前のレベルから名前を作る */
 const prize = computed(() => {
   const p = run.value.gacha?.prize;
@@ -155,12 +158,17 @@ const equipNames = computed(() => run.value.equipment.map((id) => equipDef(id).n
       <button class="btn win" type="button" @click="act({ type: 'leave' })">次へ</button>
     </div>
     <p class="note">
-      お守り {{ run.charms.length }}/{{ MAX_CHARMS }} ・ 消耗品 {{ run.consumables.length }}/{{ MAX_CONSUMABLES }} ・ 設備
+      {{ charmSlotText(run) }} ・ 消耗品 {{ run.consumables.length }}/{{ MAX_CONSUMABLES }} ・ 設備
       {{ equipNames }}
     </p>
     <!-- 牌の改造を買う前に、今の牌山を確かめられるように（閉じるとショップに戻る） -->
     <button class="ghost" type="button" aria-haspopup="dialog" @click="emit('openInventory')">持ち物と牌山を見る</button>
-    <div v-if="run.charms.length || run.consumables.length" class="owns">
+    <div v-if="innate.length || run.charms.length || run.consumables.length" class="owns">
+      <!-- 固有のお守りは売れないので、売るボタンを出さない -->
+      <span v-for="id in innate" :key="`innate-${id}`" class="own">
+        <b>{{ charmDef(id).name }}</b>
+        <small>固有のお守り（枠に数えず、売れない）: {{ charmDef(id).description }}</small>
+      </span>
       <span v-for="(id, i) in run.charms" :key="`charm-${id}-${i}`" class="own">
         <b>{{ charmDef(id).name }}</b>
         <small>お守り: {{ charmDef(id).description }}</small>

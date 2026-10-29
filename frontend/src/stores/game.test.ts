@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { createPinia, setActivePinia } from 'pinia';
-import { EMPTY_PROGRESS, ENGINE_VERSION, makeStart, type Progress } from '@pujan/engine';
+import { EMPTY_PROGRESS, ENGINE_VERSION, makeStart, ownedCharms, type Progress } from '@pujan/engine';
 import { memoryStorage } from '@/lib/memory-storage';
 import { useAccountStore } from './account';
 import { useGameStore } from './game';
@@ -240,7 +240,7 @@ describe('ランキングに載せるラン', () => {
     await store.startRun({ character: 'oya', dan: 1 });
     expect(store.runId).toBe('run-1');
     expect(store.run.start).toEqual({ character: 'oya', dan: 1, unlockedYaku: ['役牌'] });
-    expect(store.run.charms).toEqual(['oyaji']);
+    expect(ownedCharms(store.run)).toEqual(['oyaji']);
     expect(JSON.parse(storage.data.get('pujan.choice.v1')!)).toEqual({ character: 'oya', dan: 1 });
     // サーバーの解禁の状態は端末にも残る
     expect(useAccountStore().progress).toEqual(server.progress);
