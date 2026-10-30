@@ -71,6 +71,8 @@ export interface Round {
   /** オーラス（4 局目）のボス */
   boss: BossId;
   target: number;
+  /** オーラス（4 局目）でいちばん高かった和了の点数（和了っていなければ 0）。段位の突破の条件に使う */
+  orasuWin: number;
   log: RoundLogEntry[];
 }
 
@@ -139,6 +141,8 @@ export interface RunState {
   gachaTickets: number;
   /** 今のショップで回した福引きの結果（まだ回していなければ null。ショップを開くたびに戻す） */
   gacha: GachaResult | null;
+  /** 直前の精算で、オーラスの和了の褒美にもらった品（もらっていなければ null。ショップを出ると戻す） */
+  orasuPrize: Offer | null;
 }
 
 /** 福引きの結果 */
@@ -155,7 +159,7 @@ function newRound(rng: number, wave: number, targets: readonly number[]): [numbe
   let boss: number;
   [r, dealer] = nextInt(r, KYOKU_PER_WAVE);
   [r, boss] = nextInt(r, BOSSES.length);
-  return [r, { kyoku: 0, score: 0, dealer, honba: 0, boss: BOSSES[boss].id, target: targets[wave], log: [] }];
+  return [r, { kyoku: 0, score: 0, dealer, honba: 0, boss: BOSSES[boss].id, target: targets[wave], orasuWin: 0, log: [] }];
 }
 
 export interface RunOptions {
@@ -204,6 +208,7 @@ export function createRun(seed: number, options: RunOptions = {}): RunState {
     waveScores: [],
     gachaTickets: 0,
     gacha: null,
+    orasuPrize: null,
   };
 }
 
@@ -223,7 +228,24 @@ export const bakazeOf = (run: RunState): Kind => EAST + run.wave;
 export const isDealerKyoku = (run: RunState): boolean => run.round.kyoku === run.round.dealer;
 /** 自風: 親の局は東、そこから逆算して南・西・北 */
 export const seatOf = (run: RunState): Kind => EAST + ((((run.round.dealer - run.round.kyoku) % 4) + 4) % 4);
-export const bossOf = (run: RunState): BossId | null => (run.round.kyoku === KYOKU_PER_WAVE - 1 ? run.round.boss : null);
+/** オーラス（場の 4 局目） */
+export const isOrasu = (run: RunState): boolean => run.round.kyoku === KYOKU_PER_WAVE - 1;
+export const bossOf = (run: RunState): BossId | null => (isOrasu(run) ? run.round.boss : null);
+
+/**
+ * 場を突破するのに要る、オーラスの和了の点数（段位の縛り。docs/SPEC.md §4.6）。条件がなければ null。
+ * 点数を問わない段位では 1（どんな和了でもよい）
+ */
+export function orasuNeed(run: RunState): number | null {
+  const share = runRulesFor(run.start).orasuWin;
+  return share === null ? null : Math.max(1, Math.ceil((run.round.target * share) / 100) * 100);
+}
+
+/** 場の点数とオーラスの和了が、突破の条件を満たしているか */
+export function waveClearedBy(run: RunState): boolean {
+  const need = orasuNeed(run);
+  return run.round.score >= run.round.target && (need === null || run.round.orasuWin >= need);
+}
 
 /** 今の局を始める。局の乱数はランの乱数から派生させる */
 export function beginKyoku(run: RunState): { run: RunState; kyoku: KyokuState } {
@@ -300,20 +322,36 @@ export function settleKyoku(run: RunState, result: KyokuResult, renchan = false)
       dealer,
     });
   }
-  const next: RunState = { ...run, money, round, yakuWon, gachaTickets };
+  // オーラスの和了は、その場で最初の 1 回だけ品をもらえる（連荘で何度も和了っても 1 回）
+  const firstOrasuWin = result.type === 'win' && isOrasu(run) && run.round.orasuWin === 0;
+  if (result.type === 'win' && isOrasu(run)) round.orasuWin = Math.max(round.orasuWin, result.score.points);
+  const next: RunState = { ...run, money, round, yakuWon, gachaTickets, orasuPrize: null };
+  let settled: RunState;
   if (result.type === 'win' && dealer && renchan) {
     next.round = { ...round, honba: round.honba + 1 };
-    return openShop(next, 'sameKyoku');
+    settled = openShop(next, 'sameKyoku');
+  } else {
+    next.round = { ...round, honba: 0 };
+    settled = round.kyoku >= KYOKU_PER_WAVE - 1 ? endWave(next) : openShop(next, 'nextKyoku');
   }
-  next.round = { ...round, honba: 0 };
-  if (round.kyoku >= KYOKU_PER_WAVE - 1) return endWave(next);
-  return openShop(next, 'nextKyoku');
+  // ランが終わったら（場で負けた・全場クリア）、品はもう使えないので渡さない
+  return firstOrasuWin && settled.phase === 'shop' ? giveOrasuPrize(settled) : settled;
+}
+
+/**
+ * オーラスの和了の褒美（GitHub issue #9）。福引きと同じ景品から、はずれなしで 1 つ選んで持ち物に加える。
+ * 福引きのない段位（雀聖）でももらえる。受け取れる品がどの種類にもなければ何ももらえない
+ */
+function giveOrasuPrize(run: RunState): RunState {
+  const [rng, prize] = pickPrize(run.rng, run);
+  const next: RunState = { ...run, rng, orasuPrize: prize };
+  return prize ? receive(next, prize) : next;
 }
 
 function endWave(ended: RunState): RunState {
   const { score, target } = ended.round;
   const run = { ...ended, waveScores: [...ended.waveScores, score] };
-  if (score < target) return { ...run, phase: 'over', shop: null, afterShop: null };
+  if (!waveClearedBy(run)) return { ...run, phase: 'over', shop: null, afterShop: null };
   /** 最後の場（突破すると全場クリアで、もうショップは開かない） */
   const last = run.wave >= WAVE_COUNT - 1;
   const bonus: WaveBonus = {
@@ -546,16 +584,8 @@ export function gacha(run: RunState): RunState {
   let r = run.rng;
   let roll: number;
   [r, roll] = nextFloat(r);
-  const prizes = gachaPrizes(run);
-  const kinds = (Object.keys(GACHA.weights) as GachaKind[]).filter((k) => prizes[k].length);
   let prize: OfferOf<GachaKind> | null = null;
-  if (roll >= GACHA.missRate && kinds.length) {
-    let pick: number;
-    [r, pick] = nextInt(r, kinds.reduce((a, k) => a + GACHA.weights[k], 0));
-    const kind = kinds.find((k) => (pick -= GACHA.weights[k]) < 0)!;
-    [r, pick] = nextInt(r, prizes[kind].length);
-    prize = prizes[kind][pick];
-  }
+  if (roll >= GACHA.missRate) [r, prize] = pickPrize(r, run);
   const ticket = run.gachaTickets > 0;
   const next: RunState = {
     ...run,
@@ -565,6 +595,22 @@ export function gacha(run: RunState): RunState {
     gacha: { prize, ticket },
   };
   return prize ? receive(next, prize) : next;
+}
+
+/**
+ * 景品を 1 つ選ぶ（福引きの当たりと、オーラスの和了の褒美）。受け取れる品のある種類を出やすさの重みで選び、
+ * その中から 1 つ。受け取れる品がどの種類にもなければ null（乱数は使わない）
+ */
+function pickPrize(rng: number, run: RunState): [number, OfferOf<GachaKind> | null] {
+  const prizes = gachaPrizes(run);
+  const kinds = (Object.keys(GACHA.weights) as GachaKind[]).filter((k) => prizes[k].length);
+  if (!kinds.length) return [rng, null];
+  let r = rng;
+  let pick: number;
+  [r, pick] = nextInt(r, kinds.reduce((a, k) => a + GACHA.weights[k], 0));
+  const kind = kinds.find((k) => (pick -= GACHA.weights[k]) < 0)!;
+  [r, pick] = nextInt(r, prizes[kind].length);
+  return [r, prizes[kind][pick]];
 }
 
 /** 福引きのはずれで戻った祝儀（祝儀で回したときだけ戻る） */
@@ -582,7 +628,7 @@ export function ticketsForWin(run: RunState, result: Extract<KyokuResult, { type
 /** ショップを出て、次の局（または次の場）へ進む */
 export function leaveShop(run: RunState): RunState {
   if (run.phase !== 'shop') throw new Error('not in the shop');
-  const base = { ...run, phase: 'kyoku' as const, shop: null, afterShop: null };
+  const base = { ...run, phase: 'kyoku' as const, shop: null, afterShop: null, orasuPrize: null };
   if (run.afterShop === 'sameKyoku') return base;
   if (run.afterShop === 'nextKyoku') return { ...base, round: { ...run.round, kyoku: run.round.kyoku + 1 } };
   const [rng, round] = newRound(run.rng, run.wave + 1, runRulesFor(run.start).targets);

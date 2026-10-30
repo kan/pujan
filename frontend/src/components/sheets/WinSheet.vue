@@ -7,6 +7,8 @@ import {
   byKind,
   doraOf,
   isDealerKyoku,
+  isOrasu,
+  orasuNeed,
   moneyForWin,
   notenPenalty,
   ticketsForWin,
@@ -41,6 +43,13 @@ const dealer = computed(() => isDealerKyoku(store.run));
 /** この和了でもらう福引き券（精算の前のランから求める） */
 const tickets = computed(() => ticketsForWin(store.run, result.value));
 const honba = computed(() => store.run.round.honba);
+/** その場で最初のオーラスの和了なら、精算のあと景品をもらえる */
+const orasuPrizeNext = computed(() => isOrasu(store.run) && store.run.round.orasuWin === 0);
+/** 段位の縛りで要るオーラスの和了の点数に、この和了が足りない（連荘しないと突破できない） */
+const orasuShort = computed(() => {
+  const need = orasuNeed(store.run);
+  return isOrasu(store.run) && need !== null && Math.max(store.run.round.orasuWin, result.value.score.points) < need ? need : null;
+});
 const ura = computed(() =>
   result.value.ura.map((t) => ({ tile: t, dora: tileName(doraOf(t.kind)) })),
 );
@@ -61,6 +70,10 @@ const ura = computed(() =>
         <span class="sub">うち金牌{{ result.gold }}枚</span><span class="sub">+{{ result.gold * GOLD_MONEY }}</span>
       </template>
     </div>
+    <p v-if="orasuPrizeNext" class="note">オーラスの和了なので、精算のあと景品を1つもらえます（ランが続くとき）。</p>
+    <p v-if="orasuShort" class="note warn">
+      この段位の突破には、オーラスで{{ orasuShort.toLocaleString() }}点以上の和了が要ります。この和了では足りません。
+    </p>
     <p v-if="tickets" class="note">金牌で和了ったので、福引き券を{{ tickets }}枚もらえます。</p>
     <p v-if="k.riichi" class="note">
       <template v-if="ura.length">

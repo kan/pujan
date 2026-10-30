@@ -144,6 +144,7 @@ export const GUIDE_PAGES: readonly { title: string; body: string[]; /** 「役�
       `東・南・西・北の${WAVE_COUNT}つの場を勝ち抜けばクリアです。1つの場は${KYOKU_PER_WAVE}局で、${KYOKU_PER_WAVE}局の点数の合計が場の目標点（${targetsText}点）に届けば次の場へ進めます。`,
       `1局は${RULES.turns}巡で、和了れるのは1回だけ。${RULES.turns}巡で和了れなければ流局です（聴牌していれば聴牌料${RULES.tenpaiFee}点）。`,
       `${KYOKU_PER_WAVE}局のうち1局は親番です。親の和了は${RULES.dealerMultiplier}倍で、連荘すると同じ局をもう一度遊べます。`,
+      `${KYOKU_PER_WAVE}局目（オーラス）で和了ると、景品を1つもらえます。目標点に届いたあとも、最後まで和了を狙いましょう。`,
     ],
   },
   {

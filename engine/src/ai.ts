@@ -55,6 +55,7 @@ import {
   canGacha,
   canModify,
   isDealerKyoku,
+  orasuNeed,
   ownedCharms,
   type Offer,
   type RunState,
@@ -228,6 +229,8 @@ export interface AiSituation {
   target: number;
   /** この局が場の最後の局（4 局目） */
   lastKyoku: boolean;
+  /** 突破にまだ要る、オーラスの和了の点数（段位の縛り。条件がないか、もう満たしていれば null） */
+  orasuMin: number | null;
   /** 祝儀 1 の点数への換算（延長に祝儀を払うかの判断に使う） */
   moneyValue: number;
   money: number;
@@ -245,7 +248,10 @@ const GOLD_POINTS = 150;
 /** 局の点数の増減 p の効用。win は和了（場の最後の局でも、親の和了なら連荘でまだ続けられる） */
 function utility(p: number, sit: AiSituation | undefined, dealer: boolean, win: boolean): number {
   if (!sit) return p;
-  if (sit.lastKyoku && !(win && dealer)) return (p >= sit.need ? PASS_WEIGHT * sit.target : 0) + OVER_WEIGHT * p;
+  if (sit.lastKyoku && !(win && dealer)) {
+    const pass = p >= sit.need && (sit.orasuMin === null || (win && p >= sit.orasuMin));
+    return (pass ? PASS_WEIGHT * sit.target : 0) + OVER_WEIGHT * p;
+  }
   if (sit.need <= 0) return OVER_WEIGHT * p;
   return Math.min(p, sit.need) + OVER_WEIGHT * Math.max(0, p - sit.need);
 }
@@ -879,10 +885,12 @@ function freshHandValue(s: KyokuState, sit: AiSituation | undefined): number {
 /** ランの状況（効用の重み付けに使う） */
 export function situationOf(run: RunState): AiSituation {
   const r = run.round;
+  const need = orasuNeed(run);
   return {
     need: r.target - r.score,
     target: r.target,
     lastKyoku: r.kyoku >= KYOKU_PER_WAVE - 1,
+    orasuMin: need !== null && r.orasuWin < need ? need : null,
     // 祝儀 1 は、その場の目標点の 1/40 ほどの値打ちと見る（アイテムが場の点数を何割か押し上げる目安）
     moneyValue: r.target / 40,
     money: run.money,
@@ -892,11 +900,14 @@ export function situationOf(run: RunState): AiSituation {
 
 /**
  * 親の和了のあと連荘するか。連荘はもう 1 局遊べるので基本は続けるが、場の最後の局で目標に届いているのに、
- * 流局の罰符（とリーチ棒）で目標を割る恐れがあるときはやめる
+ * 流局の罰符（とリーチ棒）で目標を割る恐れがあるときはやめる。オーラスの和了の条件（段位）をまだ満たして
+ * いなければ、和了やめると負けるので続ける
  */
 export function smartRenchan(run: RunState, points: number): boolean {
   const r = run.round;
   if (r.kyoku < KYOKU_PER_WAVE - 1) return true;
+  const need = orasuNeed(run);
+  if (need !== null && Math.max(r.orasuWin, points) < need) return true;
   const after = r.score + points;
   return after < r.target || after - notenPenalty(r.honba + 1) - 300 >= r.target;
 }

@@ -112,6 +112,14 @@ describe('精算', () => {
     // まだ届いていなければ連荘する（和了やめると場で負ける）
     expect(smartRenchan(lastKyoku(0, 1000), 500)).toBe(true);
   });
+
+  it('雀聖でオーラスの和了の条件（目標点の1/4以上）をまだ満たしていなければ連荘する', () => {
+    const run = createRun(1, { start: { character: 'standard', dan: 5, unlockedYaku: [] } });
+    const orasu = (score: number): RunState => ({ ...run, round: { ...run.round, kyoku: 3, dealer: 3, score } });
+    // 東場の目標点 2,000、要る和了は 500 点。400 点の和了では足りないので、罰符の恐れがあっても続ける
+    expect(smartRenchan(orasu(1900), 400)).toBe(true);
+    expect(smartRenchan(orasu(1900), 600)).toBe(false);
+  });
 });
 
 describe('ショップ', () => {

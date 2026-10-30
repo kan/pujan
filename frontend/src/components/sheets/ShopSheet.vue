@@ -24,7 +24,7 @@ import {
 } from '@pujan/engine';
 import { useGameStore } from '@/stores/game';
 import { OFFER_KIND_LABEL } from '@pujan/engine';
-import { GACHA_TEXT, charmDef, charmSlotText, compositionText, consumableDef, equipDef, modifiedKinds, offerText } from '@/lib/labels';
+import { GACHA_TEXT, charmDef, charmSlotText, compositionText, consumableDef, equipDef, modifiedKinds, offerText, receivedText } from '@/lib/labels';
 import MjTile from '../MjTile.vue';
 import SheetLayer from '../SheetLayer.vue';
 
@@ -75,10 +75,12 @@ const innate = computed(() => innateCharms(run.value));
 /** 福引きで当たった品の名前と説明。役の巻物はもう受け取ったので、受け取る前のレベルから名前を作る */
 const prize = computed(() => {
   const p = run.value.gacha?.prize;
-  if (!p) return null;
-  const levels = run.value.yakuLevels;
-  const before = p.kind === 'scroll' ? { ...levels, [p.yaku]: (levels[p.yaku] ?? 1) - 1 } : levels;
-  return { ...p, ...offerText(p, before) };
+  return p ? { ...p, ...receivedText(p, run.value.yakuLevels) } : null;
+});
+/** 直前のオーラスの和了でもらった品 */
+const orasuPrize = computed(() => {
+  const p = run.value.orasuPrize;
+  return p ? { ...p, ...receivedText(p, run.value.yakuLevels) } : null;
 });
 
 const comp = computed(() => run.value.composition);
@@ -110,6 +112,9 @@ const equipNames = computed(() => run.value.equipment.map((id) => equipDef(id).n
   <SheetLayer v-else label="ショップ">
     <h2>ショップ<span class="pts">祝儀 {{ run.money }}</span></h2>
     <p v-if="notice" class="note warn" role="alert">{{ notice }}</p>
+    <p v-if="orasuPrize" class="note">
+      オーラスの和了の褒美に、{{ OFFER_KIND_LABEL[orasuPrize.kind] }}「{{ orasuPrize.name }}」をもらいました（{{ orasuPrize.description }}）。
+    </p>
     <div class="cards">
       <div v-for="(o, i) in offers" :key="i" class="card" :class="{ sold: o.sold }">
         <div class="ct">

@@ -12,6 +12,7 @@ import {
   bossOf,
   innateCharms,
   isDealerKyoku,
+  orasuNeed,
   turnLimit,
   type ConsumableId,
 } from '@pujan/engine';
@@ -34,6 +35,12 @@ const modded = computed(() => modifiedKinds(run.value).size > 0);
 /** 雀士の固有のお守りの数（枠の数とは別に、設備の数と同じ小さな印で出す） */
 const innateCount = computed(() => innateCharms(run.value).length);
 
+/** オーラスの和了の条件（段位の縛り）。オーラスの局で、条件があるときだけ出す */
+const orasuRule = computed(() => {
+  const need = orasuNeed(run.value);
+  if (!boss.value || need === null) return null;
+  return { label: need <= 1 ? 'オーラス和了' : `${need.toLocaleString()}点以上の和了`, done: round.value.orasuWin >= need };
+});
 const turnsLeft = computed(() => (k.value ? turnLimit(k.value) - k.value.turn : 0));
 
 /** 色を選んでいる染め粉の番号（持ち物の消耗品の何番目か） */
@@ -125,6 +132,9 @@ const hint = computed(() => {
     <div v-if="k" class="info">
       <span v-if="k.riichi" class="badge">リーチ</span>
       <span v-if="boss" class="c boss" :title="boss.description">ボス <b>{{ boss.name }}</b></span>
+      <span v-if="orasuRule" class="c boss" title="段位の縛り: 満たさないと場を突破できない">
+        {{ orasuRule.label }} <b>{{ orasuRule.done ? '済' : '要' }}</b>
+      </span>
       <span v-for="(ind, i) in k.indicators" :key="ind.id" class="c">
         <MjTile :kind="ind.kind" :red="ind.red" :gold="ind.gold" size="sm" />→<MjTile
           :kind="k.doraKinds[i]"

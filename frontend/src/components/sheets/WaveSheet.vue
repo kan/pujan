@@ -3,7 +3,8 @@
 import { computed } from 'vue';
 import { useAccountStore } from '@/stores/account';
 import { useGameStore } from '@/stores/game';
-import { WIND_NAMES, roundLabel, summaryText, unlockLines } from '@/lib/labels';
+import { OFFER_KIND_LABEL } from '@pujan/engine';
+import { WIND_NAMES, orasuRuleText, receivedText, roundLabel, summaryText, unlockLines } from '@/lib/labels';
 import SheetLayer from '../SheetLayer.vue';
 
 const emit = defineEmits<{ close: []; openRanking: []; openFeedback: []; openMenu: []; newRun: [] }>();
@@ -17,6 +18,13 @@ const title = computed(() =>
 );
 // 突破したとき（全場クリアを含む）の祝儀の内訳。ラン終了では出さない
 const bonus = computed(() => (run.value.phase === 'over' ? null : run.value.lastWaveBonus));
+/** 目標点には届いたが、オーラスの和了の条件（段位の縛り）で突破できなかった */
+const orasuFailed = computed(() => run.value.phase === 'over' && round.value.score >= round.value.target);
+/** オーラスの和了でもらった品 */
+const orasuPrize = computed(() => {
+  const p = run.value.orasuPrize;
+  return p ? { ...p, ...receivedText(p, run.value.yakuLevels) } : null;
+});
 /** ランが終わって新しく解禁されたもの */
 const unlocked = computed(() => (store.unlocks && run.value.phase !== 'shop' ? unlockLines(store.unlocks) : []));
 
@@ -49,7 +57,10 @@ const submissionText = computed(() => {
 <template>
   <SheetLayer :label="title">
     <h2>{{ title }}<span class="pts">{{ round.score.toLocaleString() }}点</span></h2>
-    <p v-if="run.phase === 'over'" class="note">
+    <p v-if="orasuFailed" class="note">
+      {{ wind }}場の目標点には届きましたが、{{ orasuRuleText(run) }}。
+    </p>
+    <p v-else-if="run.phase === 'over'" class="note">
       {{ wind }}場の目標 {{ round.target.toLocaleString() }}点に届きませんでした。
     </p>
     <p v-else-if="run.phase === 'cleared'" class="note">東南西北の4場をすべて突破しました。</p>
@@ -64,6 +75,9 @@ const submissionText = computed(() => {
       <span>利子（5ごとに1、最大5）</span><span>+{{ bonus.interest }}</span>
       <span>目標超過</span><span>+{{ bonus.over }}</span>
     </div>
+    <p v-if="orasuPrize" class="note">
+      オーラスの和了の褒美に、{{ OFFER_KIND_LABEL[orasuPrize.kind] }}「{{ orasuPrize.name }}」をもらいました（{{ orasuPrize.description }}）。
+    </p>
     <p v-if="bonus?.tickets" class="note">福引き券を{{ bonus.tickets }}枚もらいました（ショップの福引きを祝儀なしで回せます）。</p>
     <section v-if="unlocked.length" class="unlocks" aria-label="解禁">
       <h3>解禁</h3>

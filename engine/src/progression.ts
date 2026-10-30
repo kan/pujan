@@ -191,6 +191,11 @@ export interface DanDef {
   shopSize?: number;
   /** ショップで福引きを回せない（福引き券ももらえない）。上の段位にも引き継ぐ */
   noGacha?: boolean;
+  /**
+   * オーラス（場の 4 局目）で和了らないと場を突破できない。値は、その和了に要る点数の場の目標点に対する割合
+   * （0 なら点数を問わない）。上の段位の値で置き換える
+   */
+  orasuWin?: number;
 }
 
 export const DANS: readonly DanDef[] = [
@@ -199,9 +204,23 @@ export const DANS: readonly DanDef[] = [
   { level: 2, name: '三段', description: '場を突破したときの祝儀が1少ない', clearBonusDelta: -1 },
   // 雀士によって巡数が違う（かめは＋3）ので、何巡かではなく増減で書く
   { level: 3, name: '四段', description: '1局の巡数が1少ない', turnsDelta: -1 },
-  { level: 4, name: '五段', description: '場の目標点が2倍（二段の1.5倍の代わり）', targetTimes: 2 },
+  // 目標点に早く届いても、オーラスまで手を抜けなくする（GitHub issue #9）
+  {
+    level: 4,
+    name: '五段',
+    description: '場の目標点が2倍（二段の1.5倍の代わり）。オーラスで和了らないと場を突破できない',
+    targetTimes: 2,
+    orasuWin: 0,
+  },
   // 福引きがあると品の数の縛りが弱まる（sim で全場クリア 25%→43%）ので、福引きも止める
-  { level: 5, name: '雀聖', description: 'ショップの品が2つで、福引きがない', shopSize: 2, noGacha: true },
+  {
+    level: 5,
+    name: '雀聖',
+    description: 'ショップの品が2つで、福引きがない。オーラスの和了は場の目標点の1/4以上の点数が要る',
+    shopSize: 2,
+    noGacha: true,
+    orasuWin: 0.25,
+  },
 ];
 
 export const danName = (level: number): string => DANS[level]?.name ?? `${level}`;
@@ -270,6 +289,8 @@ export interface RunRules {
   shopSize: number;
   /** ショップで福引きを回せる（福引き券をもらえる） */
   gacha: boolean;
+  /** オーラスの和了が突破の条件か（null は条件なし）。値は和了に要る点数の場の目標点に対する割合 */
+  orasuWin: number | null;
   charms: CharmId[];
   equipment: EquipId[];
 }
@@ -282,7 +303,9 @@ export function runRulesFor(start: RunChoice): RunRules {
   let clearBonus = BASE_CLEAR_BONUS;
   let shopSize = BASE_SHOP_SIZE;
   let gacha = true;
+  let orasuWin: number | null = null;
   for (const d of DANS.slice(0, start.dan + 1)) {
+    orasuWin = d.orasuWin ?? orasuWin;
     targetTimes = d.targetTimes ?? targetTimes;
     turns += d.turnsDelta ?? 0;
     clearBonus += d.clearBonusDelta ?? 0;
@@ -296,6 +319,7 @@ export function runRulesFor(start: RunChoice): RunRules {
     clearBonus: Math.max(0, clearBonus),
     shopSize,
     gacha,
+    orasuWin,
     charms: [...c.charms],
     equipment: [...c.equipment],
   };

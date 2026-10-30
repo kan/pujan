@@ -3,7 +3,7 @@ import { ENGINE_VERSION, apply, createGame, isFinished, newLog, replay, type Gam
 import { EXTEND_PRICE, EXTEND_TURNS, GACHA, SELL_PRICES } from '../src/items.js';
 import { turnLimit, type KyokuResult } from '../src/kyoku.js';
 import { createRng, mix32 } from '../src/rng.js';
-import { buyBlocker, canGacha, canModify, createRun, gachaRefund, runSummary, settleKyoku } from '../src/run.js';
+import { buyBlocker, canGacha, canModify, createRun, gachaRefund, leaveShop, orasuNeed, runSummary, settleKyoku, type RunState } from '../src/run.js';
 import { botAction } from '../src/sim.js';
 import { KIND_COUNT } from '../src/tiles.js';
 
@@ -11,6 +11,17 @@ import { KIND_COUNT } from '../src/tiles.js';
  * AI に 1 ランを遊ばせ、操作ログを残す。ショップでは買えるものを買い、牌の改造は最初に選べる牌に使う。
  * gacha なら、ショップで福引きを回せるときは先に回す
  */
+/** 点数だけを決めた和了の結果（精算のテスト用） */
+function winResult(points: number, gold = 0): KyokuResult {
+  return {
+    type: 'win',
+    gold,
+    score: { points, lines: [] },
+    ura: [],
+    win: { evaluation: { yakuman: 0, han: 0, yaku: [], noYaku: true }, tileIds: [], kinds: [], jokers: [], points },
+  } as unknown as KyokuResult;
+}
+
 function playLogged(seed: number, maxActions = 5000, gacha = false): { log: RunLog; final: GameState } {
   const log = newLog(seed);
   let g = createGame(seed);
@@ -218,9 +229,10 @@ describe('操作ログと再生', () => {
       expect(canGacha(top)).toBe(false);
       expect(canGacha({ ...top, start: { ...top.start, dan: 4 } })).toBe(true);
       const last = { ...createRun(1, { start: { ...g.run.start, dan: 5 } }) };
+      // 雀聖ではオーラスの和了が突破の条件なので、和了って突破する（親でない局にして連荘を避ける）
       const cleared = settleKyoku(
-        { ...last, round: { ...last.round, kyoku: 3, score: 999999 } },
-        { type: 'draw', tenpai: false, fee: 0, penalty: 0, stickLost: 0 },
+        { ...last, round: { ...last.round, kyoku: 3, dealer: 0, score: 999999 } },
+        winResult(999999, 0),
       );
       expect(cleared.lastWaveBonus?.tickets).toBe(0);
       expect(cleared.gachaTickets).toBe(0);
@@ -285,5 +297,64 @@ describe('操作ログと再生', () => {
   it('終わったランには操作できない', () => {
     const { final } = playLogged(8);
     expect(() => apply(final, { type: 'leave' })).toThrow(/finished/);
+  });
+});
+
+describe('オーラスの和了（GitHub issue #9）', () => {
+  const DRAW: KyokuResult = { type: 'draw', tenpai: false, fee: 0, penalty: 0, stickLost: 0 };
+  /** 東場のオーラス（親は 1 局目）で、目標点に届いている状態 */
+  const orasu = (dan: number, score = 999999): RunState => {
+    const run = createRun(1, { start: { character: 'standard', dan, unlockedYaku: [] } });
+    return { ...run, round: { ...run.round, kyoku: 3, dealer: 0, score } };
+  };
+  const owned = (r: RunState) => r.charms.length + r.equipment.length + r.consumables.length + Object.keys(r.yakuLevels).length;
+
+  it('五段からはオーラスで和了らないと突破できず、雀聖は目標点の1/4以上の和了が要る', () => {
+    for (const dan of [0, 1, 2, 3]) expect(orasuNeed(orasu(dan))).toBeNull();
+    expect(orasuNeed(orasu(4))).toBe(1);
+    // 雀聖の東場の目標点は 2,000 点
+    expect(orasuNeed(orasu(5))).toBe(500);
+
+    expect(settleKyoku(orasu(3), DRAW).phase).toBe('shop');
+    expect(settleKyoku(orasu(4), DRAW).phase).toBe('over');
+    expect(settleKyoku(orasu(4), winResult(100)).phase).toBe('shop');
+    expect(settleKyoku(orasu(5), winResult(400)).phase).toBe('over');
+    expect(settleKyoku(orasu(5), winResult(500)).phase).toBe('shop');
+    // オーラスで和了っても、場の点数が目標点に届いていなければ突破できない
+    expect(settleKyoku(orasu(4, 0), winResult(100)).phase).toBe('over');
+  });
+
+  it('連荘の前の和了で条件を満たしていれば、連荘の局が流局でも突破できる', () => {
+    const base = orasu(5);
+    const dealerOrasu = { ...base, round: { ...base.round, dealer: 3 } };
+    const renchan = leaveShop(settleKyoku(dealerOrasu, winResult(800), true));
+    expect(renchan.round.orasuWin).toBe(800);
+    expect(settleKyoku(renchan, DRAW).phase).toBe('shop');
+  });
+
+  it('オーラスで和了ると、景品から 1 つもらえる（その場で最初の 1 回だけ）', () => {
+    for (let seed = 1; seed <= 30; seed++) {
+      const base = { ...orasu(0), rng: createRng(mix32(seed)) };
+      const dealerOrasu = { ...base, round: { ...base.round, dealer: 3 } };
+      const first = settleKyoku(dealerOrasu, winResult(1000), true);
+      expect(first.orasuPrize).not.toBeNull();
+      expect(owned(first)).toBe(owned(base) + 1);
+      const again = settleKyoku(leaveShop(first), winResult(1000), true);
+      expect(again.orasuPrize).toBeNull();
+      expect(owned(again)).toBe(owned(first));
+    }
+    // オーラスでない局の和了ではもらえない。ショップを出ると、もらった品の表示は消える
+    const run = createRun(1);
+    expect(settleKyoku({ ...run, round: { ...run.round, kyoku: 1, dealer: 0 } }, winResult(1000)).orasuPrize).toBeNull();
+    expect(leaveShop(settleKyoku(orasu(0), winResult(1000))).orasuPrize).toBeNull();
+  });
+
+  it('雀聖（福引きなし）でももらえ、ランが終わるときはもらわない', () => {
+    expect(settleKyoku(orasu(5), winResult(1000)).orasuPrize).not.toBeNull();
+    const last = orasu(0);
+    const north = { ...last, wave: 3, round: { ...last.round, target: 1 } };
+    const cleared = settleKyoku(north, winResult(1000));
+    expect(cleared.phase).toBe('cleared');
+    expect(cleared.orasuPrize).toBeNull();
   });
 });

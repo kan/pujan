@@ -8,6 +8,7 @@ import {
   KYOKU_PER_WAVE,
   MAX_CHARMS,
   innateCharms,
+  orasuNeed,
   OFFER_KIND_LABEL,
   MODS,
   WAVE_COUNT,
@@ -48,6 +49,27 @@ export function charmSlotText(run: RunState): string {
 export const GACHA_TEXT = `祝儀${GACHA.price}で、${(Object.keys(GACHA.weights) as (keyof typeof GACHA.weights)[])
   .map((k) => OFFER_KIND_LABEL[k])
   .join('・')}のどれかが当たる（牌の改造は出ない）。はずれ（${GACHA.missRate * 100}%）は祝儀${GACHA.missRefund}が戻る`;
+
+/** オーラスの和了の褒美の説明（ヘルプとチュートリアルで同じ文を使う。GitHub issue #9） */
+export const ORASU_PRIZE_TEXT =
+  'オーラス（場の4局目）で和了ると、福引きと同じ景品から1つをはずれなしでもらえる（場ごとに最初の1回だけ。福引きのない段位でももらえる）';
+
+/**
+ * 段位の縛りで要る、オーラスの和了の条件（「オーラスで和了らないと突破できません」）。条件がなければ空
+ */
+export function orasuRuleText(run: RunState): string {
+  const need = orasuNeed(run);
+  if (need === null) return '';
+  return need <= 1
+    ? 'オーラスで和了らないと突破できません'
+    : `オーラスで${need.toLocaleString()}点以上の和了がないと突破できません`;
+}
+
+/** もらった品（福引き・オーラスの和了）の名前と説明。役の巻物はもう受け取ったので、受け取る前のレベルから名前を作る */
+export function receivedText(p: Offer, yakuLevels: Readonly<Record<string, number>>): { name: string; description: string } {
+  const before = p.kind === 'scroll' ? { ...yakuLevels, [p.yaku]: (yakuLevels[p.yaku] ?? 1) - 1 } : yakuLevels;
+  return offerText(p, before);
+}
 
 /** 新しく解禁されたものを 1 行ずつ（「雀士「うさぎ」」「役の巻物「混一色」」） */
 export function unlockLines(u: NewUnlocks): string[] {

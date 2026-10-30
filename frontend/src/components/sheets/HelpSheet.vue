@@ -20,7 +20,7 @@ import {
   notenPenalty,
 } from '@pujan/engine';
 import { SCORE_TABLE, YAKU_TABS } from '@/lib/help';
-import { GACHA_TEXT } from '@/lib/labels';
+import { GACHA_TEXT, ORASU_PRIZE_TEXT } from '@/lib/labels';
 import { GUIDE_PAGES } from '@/lib/tutorial';
 import MjTile from '../MjTile.vue';
 import SheetLayer from '../SheetLayer.vue';
@@ -85,6 +85,7 @@ const ITEM_SECTIONS = [
         tag: '',
         description: '場を突破したときと、金牌を使って和了ったときに1枚もらえる。祝儀の代わりに使って福引きを回せる（はずれでも祝儀は戻らない）',
       },
+      { name: 'オーラスの和了', tag: '', description: ORASU_PRIZE_TEXT },
     ],
   },
   { title: 'ボス（各場の4局目の縛り）', rows: plain(BOSSES) },
