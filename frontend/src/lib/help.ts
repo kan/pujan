@@ -76,7 +76,7 @@ export const YAKU_TABS: readonly YakuTab[] = [
     note: '役満は8,000点。重なれば倍数を足します（プチ大三元はダブル役満）。',
     rows: [
       { name: '混老頭', han: '役満', condition: '么九牌のみで刻子を含む', example: [m(1), m(1), m(1), s(9), s(9)] },
-      { name: '字一色', han: '役満', condition: '字牌のみ', example: [EAST, EAST, EAST, HAKU, HAKU] },
+      { name: '字一色', han: '役満', condition: '字牌のみ（プチ大四喜・プチ大三元とは複合しない）', example: [EAST, EAST, EAST, HAKU, HAKU] },
       { name: '緑一色', han: '役満', condition: '2・3・4・6・8索と發のみ', example: [s(2), s(3), s(4), HATSU, HATSU] },
       { name: 'プチ大四喜', han: '役満', condition: '東南西北＋三元牌1枚', example: [EAST, SOUTH, WEST, NORTH, CHUN] },
       { name: 'プチ槓', han: '役満', condition: '同じ牌4枚＋何か1枚', example: [p(5), p(5), p(5), p(5), m(1)] },

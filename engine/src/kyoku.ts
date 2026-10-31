@@ -8,7 +8,7 @@ import { addHan, addYakuman, yakuEntry, type YakuEntry } from './hand.js';
 import { CONSUMABLES, EXTEND_TURNS, SOME_COLORS, type ConsumableId, type Modifiers } from './items.js';
 import { shuffle } from './rng.js';
 import { basePoints, finalizeScore, type FinalizeContext, type FinalScore } from './score.js';
-import { HAKU, KIND_COUNT, byKind, doraOf, suit, type Kind, type Tile } from './tiles.js';
+import { HAKU, KIND_COUNT, byKind, doraOf, isHonor, suit, type Kind, type Tile } from './tiles.js';
 import { bestWin, waits, type Win, type WinContext } from './win.js';
 
 /** 牌山の構成。牌の改造（朱塗り・金箔・抜き取り・写し）で変わり、ランの間ずっと残る */
@@ -48,7 +48,7 @@ export type KyokuAction =
   | { type: 'riichi'; zone: Zone; index: number }
   | { type: 'tsumo' }
   | { type: 'redeal' }
-  /** 消耗品を使う。染め粉は残す色（color: 0 萬子・1 筒子・2 索子・3 字牌）が要る */
+  /** 消耗品を使う。染め粉は残す色（color: 0 萬子・1 筒子・2 索子。字牌はいつも残る）が要る */
   | { type: 'consumable'; id: ConsumableId; color?: number }
   /** 祝儀を払って巡を延ばす（延長札と同じ効き目） */
   | { type: 'extend' };
@@ -386,17 +386,13 @@ export function step(s: KyokuState, action: KyokuAction): KyokuState {
   }
 }
 
-/** 染め粉: 残す色以外の牌を、山から半分（端数は切り捨て）抜く。抜く牌は局の乱数で選び、山の並びは保つ */
+/** 染め粉で color を残したとき、山に残る牌か（字牌はいつも残る。AI の見積もりも同じ判定を使う） */
+export const keptByDye = (k: Kind, color: number): boolean => isHonor(k) || suit(k) === color;
+
+/** 染め粉: 残す色以外の数牌を、山から全部抜く（字牌は残す）。山の並びは保つ */
 function dye(s: KyokuState, color: number): KyokuState {
-  const others = s.wall.flatMap((t, i) => (suit(t.kind) === color ? [] : [i]));
-  const [rng, shuffled] = shuffle(s.rng, others);
-  const drop = new Set(shuffled.slice(0, Math.floor(others.length / 2)));
-  return {
-    ...s,
-    rng,
-    wall: s.wall.filter((_, i) => !drop.has(i)),
-    removed: [...s.removed, ...s.wall.filter((_, i) => drop.has(i))],
-  };
+  const keep = (t: Tile) => keptByDye(t.kind, color);
+  return { ...s, wall: s.wall.filter(keep), removed: [...s.removed, ...s.wall.filter((t) => !keep(t))] };
 }
 
 function useConsumable(s: KyokuState, id: ConsumableId, color?: number): KyokuState {

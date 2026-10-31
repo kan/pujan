@@ -27,7 +27,7 @@ import type { Kind } from './tiles.js';
  * エンジンの版。同じ操作ログから違う結果になる変更（役・点数・乱数の使い方・ショップなど）をしたら 1 つ上げる。
  * サーバーは記録の版と今の版が違うログを再生で検証できない（§5.3）。
  */
-export const ENGINE_VERSION = 7;
+export const ENGINE_VERSION = 10;
 
 /** プレイヤーの操作 */
 export type GameAction =
@@ -113,7 +113,8 @@ export function apply(g: GameState, action: GameAction): GameState {
     case 'settle': {
       const result = activeKyoku(g).result;
       if (!result) throw new Error('kyoku has not ended');
-      return { run: settleKyoku(g.run, result, action.renchan ?? false), kyoku: null, previous: g.kyoku };
+      // 連荘ならショップを開かずに次の本場が始まる
+      return withKyoku(settleKyoku(g.run, result, action.renchan ?? false), g.kyoku);
     }
     case 'buy':
       return { ...g, run: buy(inShop(g), action.index, action.target) };

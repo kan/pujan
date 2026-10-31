@@ -157,7 +157,8 @@ export function evaluateFive(kinds: readonly Kind[], rules: HandRules): Evaluati
   if (daisangen) ym.push(yakumanEntry('プチ大三元', 2));
   if (kan) ym.push(yakumanEntry('プチ槓', 1));
   if (daisuushi) ym.push(yakumanEntry('プチ大四喜', 1));
-  if (allHonor) ym.push(yakumanEntry('字一色', 1));
+  // プチ大四喜とプチ大三元は 5 枚がすべて字牌なので、字一色を足すといつもダブル以上になる。点数が跳ねすぎないように足さない
+  if (allHonor && !daisuushi && !daisangen) ym.push(yakumanEntry('字一色', 1));
   if (allGreen) ym.push(yakumanEntry('緑一色', 1));
   if (allYaochu && hasTriplet && !allHonor) ym.push(yakumanEntry('混老頭', 1));
   if (ym.length) {

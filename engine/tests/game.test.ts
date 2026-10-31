@@ -205,9 +205,9 @@ describe('操作ログと再生', () => {
         expect(canGacha(after)).toBe(false);
         expect(() => apply({ ...g, run: after }, { type: 'gacha' })).toThrow();
       }
-      // はずれは 3 割ほど
-      expect(misses / 200).toBeGreaterThan(0.2);
-      expect(misses / 200).toBeLessThan(0.4);
+      // はずれは GACHA.missRate（5 割）ほど
+      expect(misses / 200).toBeGreaterThan(GACHA.missRate - 0.1);
+      expect(misses / 200).toBeLessThan(GACHA.missRate + 0.1);
       expect(prizes).toBeGreaterThan(0);
     });
 
@@ -327,21 +327,27 @@ describe('オーラスの和了（GitHub issue #9）', () => {
   it('連荘の前の和了で条件を満たしていれば、連荘の局が流局でも突破できる', () => {
     const base = orasu(5);
     const dealerOrasu = { ...base, round: { ...base.round, dealer: 3 } };
-    const renchan = leaveShop(settleKyoku(dealerOrasu, winResult(800), true));
+    const renchan = settleKyoku(dealerOrasu, winResult(800), true);
+    expect(renchan.phase).toBe('kyoku');
     expect(renchan.round.orasuWin).toBe(800);
     expect(settleKyoku(renchan, DRAW).phase).toBe('shop');
   });
 
-  it('オーラスで和了ると、景品から 1 つもらえる（その場で最初の 1 回だけ）', () => {
+  it('オーラスで和了ると、景品から 1 つもらえる（連荘で何度和了っても、連荘が途切れたところで 1 回だけ）', () => {
     for (let seed = 1; seed <= 30; seed++) {
       const base = { ...orasu(0), rng: createRng(mix32(seed)) };
       const dealerOrasu = { ...base, round: { ...base.round, dealer: 3 } };
+      // 連荘のあいだはショップが開かないので、まだもらわない
       const first = settleKyoku(dealerOrasu, winResult(1000), true);
-      expect(first.orasuPrize).not.toBeNull();
-      expect(owned(first)).toBe(owned(base) + 1);
-      const again = settleKyoku(leaveShop(first), winResult(1000), true);
-      expect(again.orasuPrize).toBeNull();
-      expect(owned(again)).toBe(owned(first));
+      const second = settleKyoku(first, winResult(1000), true);
+      expect(second.orasuPrize).toBeNull();
+      expect(owned(second)).toBe(owned(base));
+      // 和了やめでも、連荘の局の流局でも、ショップが開くときに 1 つもらう
+      for (const ended of [settleKyoku(second, winResult(1000)), settleKyoku(second, DRAW)]) {
+        expect(ended.phase).toBe('shop');
+        expect(ended.orasuPrize).not.toBeNull();
+        expect(owned(ended)).toBe(owned(base) + 1);
+      }
     }
     // オーラスでない局の和了ではもらえない。ショップを出ると、もらった品の表示は消える
     const run = createRun(1);

@@ -8,6 +8,13 @@ import type { DoraMode } from './win.js';
 
 /** 設備の上座で、親番の局に足す巡の数 */
 export const DEALER_EXTRA_TURNS = 3;
+/**
+ * 本場 1 本につき減る巡の数。連荘を重ねるほど和了りにくくして、流局で親が流れるようにする
+ * （上限で打ち切ると損した感じが出るため、上限は付けない）
+ */
+export const HONBA_TURN_CUT = 2;
+/** 本場で巡を減らしても、これより少なくはしない */
+export const MIN_TURNS = 1;
 /** 牌の改造の金箔で、1 回に金牌にする枚数 */
 export const GOLD_PER_MOD = 2;
 /** 和了に使った金牌 1 枚の祝儀 */
@@ -108,7 +115,7 @@ export const CONSUMABLES: readonly ConsumableDef[] = [
   { id: 'hiroi', name: '河拾い', description: '最後に捨てた牌をツモ牌として拾う' },
   { id: 'nozoki', name: '山覗き', description: 'この局の間、山の先5枚まで見える' },
   { id: 'irekae', name: '総入れ替え', description: '手牌とツモ牌を山に戻して配り直す（巡は進まない）' },
-  { id: 'some', name: '染め粉', description: 'この局だけ、選んだ色（萬子・筒子・索子・字牌）以外の牌を山から半分抜く' },
+  { id: 'some', name: '染め粉', description: 'この局だけ、選んだ色（萬子・筒子・索子）以外の数牌を山から全部抜く（字牌は残る）' },
   {
     id: 'encho',
     name: '延長札',
@@ -117,8 +124,8 @@ export const CONSUMABLES: readonly ConsumableDef[] = [
   },
 ];
 
-/** 消耗品の染め粉で選ぶ色（0: 萬子・1: 筒子・2: 索子・3: 字牌。tiles.ts の suit と同じ番号） */
-export const SOME_COLORS = ['萬子', '筒子', '索子', '字牌'] as const;
+/** 消耗品の染め粉で残せる色（番号は tiles.ts の suit と同じ）。字牌は選べず、いつも残る（字牌だけの山にすると字一色が決まるため） */
+export const SOME_COLORS = ['萬子', '筒子', '索子'] as const;
 
 export const MODS: readonly ItemDef<ModId>[] = [
   { id: 'shu', name: '朱塗り', description: '選んだ牌を全部赤牌にする' },
@@ -160,7 +167,7 @@ export const REROLL_PRICE = 2;
 export const GACHA = {
   price: 2,
   /** はずれの確率 */
-  missRate: 0.3,
+  missRate: 0.5,
   /** 祝儀で回してはずれたときに戻る祝儀（福引き券で回したときは戻らない） */
   missRefund: 1,
   /** はずれ以外の景品の種類の出やすさ（受け取れる品がない種類は除いて配分し直す） */
@@ -218,16 +225,19 @@ export interface Loadout {
   equipment: readonly EquipId[];
 }
 
-/** 1 局のルール。dealer は親番の局か（上座の巡数に効く） */
-export function modifiersFor(base: BaseRules, loadout: Loadout, boss: BossId | null, dealer = false): Modifiers {
+/** 1 局のルール。dealer は親番の局か（上座の巡数に効く）。honba は本場の数（連荘で巡が減る） */
+export function modifiersFor(base: BaseRules, loadout: Loadout, boss: BossId | null, dealer = false, honba = 0): Modifiers {
   const has = (id: CharmId) => loadout.charms.includes(id);
   const eq = (id: EquipId) => loadout.equipment.includes(id);
   return {
-    turns:
+    turns: Math.max(
+      MIN_TURNS,
       base.turns +
-      (eq('turns') ? 2 : 0) +
-      (dealer && eq('kamiza') ? DEALER_EXTRA_TURNS : 0) -
-      (boss === 'short' ? 4 : 0),
+        (eq('turns') ? 2 : 0) +
+        (dealer && eq('kamiza') ? DEALER_EXTRA_TURNS : 0) -
+        (boss === 'short' ? 4 : 0) -
+        honba * HONBA_TURN_CUT,
+    ),
     holdSlots: boss === 'seal' ? 0 : base.holdSlots + (eq('hold') ? 1 : 0),
     next: boss === 'fog' ? 0 : base.next + (eq('next') ? 1 : 0),
     haitei: base.haitei,

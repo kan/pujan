@@ -12,6 +12,7 @@ import {
   EQUIPMENT,
   EXTEND_PRICE,
   EXTEND_TURNS,
+  HONBA_TURN_CUT,
   MAX_CHARMS,
   MAX_CONSUMABLES,
   MODS,
@@ -154,7 +155,7 @@ const helpGuides = GUIDE_PAGES.filter((g) => g.inHelp);
           点数には次の順で掛け合わせ・足し合わせます: 役の巻物のレベル（×1.5ずつ）→ 安手の美学（役なし×4）→ 親（×1.5）→ リーチ後の巡（＋100/巡）→ 本場（＋100/本場）。役満は重なれば倍数を足します。
         </p>
         <p class="note">
-          流局時に聴牌していれば聴牌料{{ tenpaiFee }}点。親がノーテンで流局すると罰符{{ notenPenalty(0) }}点×（本場数＋1）。
+          流局時に聴牌していれば聴牌料{{ tenpaiFee }}点。親がノーテンで流局すると罰符{{ notenPenalty(0) }}点×（本場数＋1）。連荘すると、1本場ごとに巡数が{{ HONBA_TURN_CUT }}減ります。連荘のあいだはショップが開かず、連荘が途切れたところで開きます。
         </p>
       </template>
 

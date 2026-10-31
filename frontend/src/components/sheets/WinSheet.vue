@@ -3,6 +3,8 @@
 import { computed } from 'vue';
 import {
   GOLD_MONEY,
+  HONBA_TURN_CUT,
+  MIN_TURNS,
   allTiles,
   byKind,
   doraOf,
@@ -88,7 +90,7 @@ const ura = computed(() =>
     </p>
     <template v-if="dealer">
       <p class="note">
-        親の和了です。連荘すると{{ honba + 1 }}本場になります。流局すると親は流れ、ノーテンなら罰符{{ notenPenalty(honba + 1) }}点です。
+        親の和了です。連荘すると{{ honba + 1 }}本場になり、巡数が1本場ごとに{{ HONBA_TURN_CUT }}減ります（最低{{ MIN_TURNS }}巡）。連荘のあいだはショップが開かず、連荘が途切れたところで開きます。流局すると親は流れ、ノーテンなら罰符{{ notenPenalty(honba + 1) }}点です。
       </p>
       <div class="actions">
         <button class="btn" type="button" @click="store.act({ type: 'settle', renchan: false })">和了やめ</button>

@@ -37,6 +37,7 @@ import {
   canUseConsumable,
   finalizeContext,
   isJoker,
+  keptByDye,
   notenPenalty,
   remainingOf,
   turnLimit,
@@ -55,13 +56,14 @@ import {
   canGacha,
   canModify,
   isDealerKyoku,
+  kyokuModifiers,
   orasuNeed,
   ownedCharms,
   type Offer,
   type RunState,
 } from './run.js';
 import { YAKUMAN_POINTS, finalizeScore, pointsOfHan } from './score.js';
-import { CHUN, EAST, HAKU, KIND_COUNT, NORTH, SOUTH, WEST, num, suit, type Kind, type Tile } from './tiles.js';
+import { CHUN, EAST, HAKU, KIND_COUNT, NORTH, SOUTH, WEST, type Kind, type Tile } from './tiles.js';
 import { bestWin, waits } from './win.js';
 
 /* ---------- 和了形の一覧 ---------- */
@@ -799,7 +801,7 @@ export function smartKyokuAction(
     let bestColor = -1;
     let bestValue = best.value * CONSUMABLE_MARGIN;
     for (let color = 0; color < SOME_COLORS.length; color++) {
-      const v = bestMove(s, sit, tilesOf(s), makeView(s, sit, { known: [], scale: (k) => (suit(k) === color ? 1 : 0.5) }), false).value;
+      const v = bestMove(s, sit, tilesOf(s), makeView(s, sit, { known: [], scale: (k) => (keptByDye(k, color) ? 1 : 0) }), false).value;
       if (v > bestValue) {
         bestValue = v;
         bestColor = color;
@@ -898,14 +900,19 @@ export function situationOf(run: RunState): AiSituation {
   };
 }
 
+/** 最後の局より前で連荘を続ける、次の局の巡数の下限（これより少なくなるならやめる。目安） */
+const RENCHAN_MIN_TURNS = 6;
+
 /**
  * 親の和了のあと連荘するか。連荘はもう 1 局遊べるので基本は続けるが、場の最後の局で目標に届いているのに、
  * 流局の罰符（とリーチ棒）で目標を割る恐れがあるときはやめる。オーラスの和了の条件（段位）をまだ満たして
- * いなければ、和了やめると負けるので続ける
+ * いなければ、和了やめると負けるので続ける。最後の局より前は、本場で巡が減って和了りにくくなったらやめる
  */
 export function smartRenchan(run: RunState, points: number): boolean {
   const r = run.round;
-  if (r.kyoku < KYOKU_PER_WAVE - 1) return true;
+  if (r.kyoku < KYOKU_PER_WAVE - 1) {
+    return kyokuModifiers({ ...run, round: { ...r, honba: r.honba + 1 } }).turns >= RENCHAN_MIN_TURNS;
+  }
   const need = orasuNeed(run);
   if (need !== null && Math.max(r.orasuWin, points) < need) return true;
   const after = r.score + points;

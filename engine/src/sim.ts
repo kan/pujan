@@ -282,7 +282,7 @@ export interface TargetSimOptions {
   seed: number;
   /** 基本ルールの上書き（保留枠・ネクスト・巡数など） */
   rules?: Partial<BaseRules>;
-  /** 1 巡目に消耗品の染め粉を使い、この色（0 萬子・1 筒子・2 索子・3 字牌）を残す */
+  /** 1 巡目に消耗品の染め粉を使い、この色（0 萬子・1 筒子・2 索子。字牌はいつも残る）を残す */
   dye?: number;
 }
 

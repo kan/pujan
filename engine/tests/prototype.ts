@@ -74,7 +74,15 @@ export function loadPrototype(): Prototype {
     between(html, 'function finalize(', '\nfunction startKyoku('),
     // allTiles・special・judge
     between(html, 'function allTiles(', '\nfunction draw('),
-  ].join('\n');
+  ]
+    .join('\n')
+    // プロトタイプから意図して変えたルール（docs/SPEC.md §3.3）。プロトタイプの HTML は確定版の記録として残し、ここで差し替える
+    .replace(
+      // プチ大四喜・プチ大三元には字一色を複合させない（5 枚がすべて字牌なので、いつもダブル以上になって点数が跳ねすぎるため）
+      "if(allHonor)ym.push(['字一色',1]);",
+      "if(allHonor&&!daisuushi&&!daisangen)ym.push(['字一色',1]);",
+    );
+  if (!code.includes('!daisuushi&&!daisangen')) throw new Error('prototype: 字一色の判定の差し替えができなかった');
   const api = runInNewContext(`(() => {
 ${code}
 return {

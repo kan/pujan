@@ -65,12 +65,21 @@ describe('evaluateFive', () => {
   it('プチ小三元とプチ大三元', () => {
     expect(names([HAKU, HATSU, CHUN, m(6), m(6)])).toEqual(['混一色', 'プチ小三元']);
     const ev = evaluateFive([CHUN, CHUN, CHUN, HAKU, HATSU], rules)!;
-    expect(ev.yakuman).toBe(3); // ダブル役満＋字一色
+    // 5 枚がすべて字牌でも、字一色は複合させない（ダブル役満のまま）
+    expect(ev.yakuman).toBe(2);
+    expect(ev.yaku.map((y) => y.name)).toEqual(['プチ大三元']);
   });
 
   it('プチ小四喜とプチ大四喜', () => {
     expect(names([EAST, SOUTH, WEST, m(6), m(6)])).toContain('プチ小四喜');
-    expect(evaluateFive([EAST, SOUTH, WEST, NORTH, HAKU], rules)!.yakuman).toBe(2); // 大四喜＋字一色
+    // 5 枚がすべて字牌でも、字一色は複合させない
+    const ev = evaluateFive([EAST, SOUTH, WEST, NORTH, HAKU], rules)!;
+    expect(ev.yakuman).toBe(1);
+    expect(ev.yaku.map((y) => y.name)).toEqual(['プチ大四喜']);
+  });
+
+  it('字一色は、大四喜・大三元でない字牌だけの手で付く', () => {
+    expect(names([EAST, EAST, EAST, HAKU, HAKU])).toEqual(['字一色']);
   });
 
   it('プチ槓は役満', () => {

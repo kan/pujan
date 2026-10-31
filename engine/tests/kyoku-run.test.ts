@@ -4,6 +4,8 @@ import {
   DEFAULT_BASE_RULES,
   EXTEND_TURNS,
   GOLD_PER_MOD,
+  HONBA_TURN_CUT,
+  MIN_TURNS,
   modifiersFor,
   type EquipId,
   type ModId,
@@ -23,6 +25,7 @@ import {
   type KyokuState,
 } from '../src/kyoku.js';
 import { createRng, nextInt } from '../src/rng.js';
+import { apply, type GameState } from '../src/game.js';
 import { beginKyoku, buy, canModify, createRun, leaveShop, settleKyoku, type RunState } from '../src/run.js';
 import { EAST, SOUTH, suit, type Tile } from '../src/tiles.js';
 
@@ -168,13 +171,14 @@ function kyokuWith(seed: number, equipment: EquipId[], dealer = false): KyokuSta
 }
 
 describe('消耗品と設備', () => {
-  it('染め粉: 選んだ色以外の牌を山から半分抜き、選んだ色は残す', () => {
+  it('染め粉: 選んだ色以外の数牌を山から全部抜き、選んだ色と字牌は残す', () => {
     const k = newKyoku(11);
     const count = (tiles: readonly Tile[], color: number) => tiles.filter((t) => suit(t.kind) === color).length;
     const used = step(k, { type: 'consumable', id: 'some', color: 1 });
     expect(count(used.wall, 1)).toBe(count(k.wall, 1));
-    const others = k.wall.length - count(k.wall, 1);
-    expect(used.removed).toHaveLength(Math.floor(others / 2));
+    expect(count(used.wall, 3)).toBe(count(k.wall, 3));
+    expect(count(used.wall, 0) + count(used.wall, 2)).toBe(0);
+    expect(used.removed).toHaveLength(count(k.wall, 0) + count(k.wall, 2));
     expect(used.wall.length + used.removed.length).toBe(k.wall.length);
     // 抜いた牌は待ちの残り枚数から引く
     const kind = used.removed[0].kind;
@@ -185,7 +189,8 @@ describe('消耗品と設備', () => {
   it('染め粉: 色の指定がないか範囲外なら使えない。リーチ中も使えない', () => {
     const k = newKyoku(11);
     expect(() => step(k, { type: 'consumable', id: 'some' })).toThrow();
-    expect(() => step(k, { type: 'consumable', id: 'some', color: 4 })).toThrow();
+    // 字牌（3）は選べない
+    expect(() => step(k, { type: 'consumable', id: 'some', color: 3 })).toThrow();
     expect(() => step(k, { type: 'consumable', id: 'some', color: 1.5 })).toThrow();
     expect(canUseConsumable({ ...k, riichi: { turn: 1, stick: 100 } }, 'some')).toBe(false);
     // 色を取らない消耗品に色を付けた操作も拒む
@@ -232,6 +237,16 @@ describe('消耗品と設備', () => {
     expect(kyokuWith(1, ['kamiza'], true).setup.mods.turns).toBe(12 + DEALER_EXTRA_TURNS);
     expect(kyokuWith(1, ['kamiza'], false).setup.mods.turns).toBe(12);
     expect(kyokuWith(1, [], true).setup.mods.turns).toBe(12);
+  });
+
+  it('本場が積まれるほど巡数が減る（下限あり）', () => {
+    const turns = (honba: number, equipment: EquipId[] = []) =>
+      modifiersFor(DEFAULT_BASE_RULES, { charms: [], equipment }, null, true, honba).turns;
+    expect(turns(0)).toBe(12);
+    expect(turns(1)).toBe(12 - HONBA_TURN_CUT);
+    expect(turns(3)).toBe(12 - 3 * HONBA_TURN_CUT);
+    expect(turns(3, ['kamiza'])).toBe(12 + DEALER_EXTRA_TURNS - 3 * HONBA_TURN_CUT);
+    expect(turns(99)).toBe(MIN_TURNS);
   });
 });
 
@@ -289,5 +304,28 @@ describe('ラン', () => {
 
   it('同じシードなら同じ展開になる', () => {
     expect(playRun(5)).toEqual(playRun(5));
+  });
+
+  it('連荘のあいだはショップを開かず、連荘が途切れたところで開く', () => {
+    const run = createRun(3);
+    const dealer = { ...run, round: { ...run.round, kyoku: run.round.dealer } };
+    let g: GameState = { ...beginKyoku(dealer), previous: null };
+    let renchans = 0;
+    // 親の局を和了るまで打ち、和了れば連荘する。流局で親が流れたら終わり
+    for (let seed = 1; g.run.round.kyoku === dealer.round.kyoku && g.kyoku; seed++) {
+      g = { ...g, kyoku: playOut(g.kyoku, seed) };
+      const won = g.kyoku!.result!.type === 'win';
+      g = apply(g, { type: 'settle', renchan: won });
+      if (!won) break;
+      renchans++;
+      // 連荘: ショップを開かずに次の本場が始まる
+      expect(g.run.phase).toBe('kyoku');
+      expect(g.run.shop).toBeNull();
+      expect(g.run.round.honba).toBe(renchans);
+      expect(g.kyoku?.result).toBeNull();
+    }
+    // 流局で親が流れると、ショップが開く
+    expect(g.run.phase).toBe('shop');
+    expect(g.run.round.honba).toBe(0);
   });
 });
