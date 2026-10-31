@@ -63,6 +63,16 @@ export const useGameStore = defineStore('game', () => {
   const runId = ref<string | null>(null);
   /** 新しいランを始めている途中（サーバーにシードをもらっている） */
   const starting = ref(false);
+  /** 再読み込みの案内を閉じた（新しいランを始めると戻す） */
+  const outdatedDismissed = ref(false);
+  /**
+   * 直前に始めたランで、サーバーの engine の版がこの画面より新しかった（デプロイの前に読み込んだ画面のまま）。
+   * 閉じるまで再読み込みを促す
+   */
+  const outdated = computed(() => account.localReason === 'outdated' && !outdatedDismissed.value);
+  function dismissOutdated() {
+    outdatedDismissed.value = true;
+  }
   /** 終わったランで新しく解禁されたもの（ラン終了のシートに出す。開き直したあとは null） */
   const unlocks = shallowRef<NewUnlocks | null>(null);
   /**
@@ -117,6 +127,8 @@ export const useGameStore = defineStore('game', () => {
     try {
       saveChoice(storage, choice);
       const ranked = await account.startRankedRun(choice);
+      // 画面が古ければ startRankedRun が null を返し、localReason で再読み込みを促す
+      outdatedDismissed.value = false;
       // 版が違う・始めの条件の形が違うランは、ランキングに載せずに端末だけのランにする
       const usable = ranked && ranked.engineVersion === ENGINE_VERSION && isRunStart(ranked.start) ? ranked : null;
       const seed = usable?.seed ?? randomSeed();
@@ -253,6 +265,8 @@ export const useGameStore = defineStore('game', () => {
     selection,
     runId,
     starting,
+    outdated,
+    dismissOutdated,
     unlocks,
     showIntro,
     showWaveResult,

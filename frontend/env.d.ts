@@ -1,4 +1,5 @@
 /// <reference types="vite/client" />
+/// <reference types="vite-plugin-pwa/client" />
 
 interface ImportMetaEnv {
   /** kan/game のローカルのポータル（scripts/dev.mjs が渡す）。既定は http://localhost:8787 */

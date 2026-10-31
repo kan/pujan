@@ -61,6 +61,11 @@ function closeTutorial() {
   saveTutorialSeen(storage);
 }
 
+/** 新しい版を読み込む（新しい Service Worker が待っていれば、main.ts の registerSW が切り替える） */
+function reloadApp() {
+  window.location.reload();
+}
+
 async function newRun(choice: RunChoice) {
   panel.value = null;
   await store.startRun(choice);
@@ -86,6 +91,14 @@ const sheet = computed(() => {
   <template v-if="tutorial" />
   <SheetLayer v-else-if="store.starting" label="準備中">
     <p class="note">新しいランを準備しています…</p>
+  </SheetLayer>
+  <SheetLayer v-else-if="store.outdated" label="新しい版があります">
+    <h2>新しい版があります</h2>
+    <p class="note">
+      この画面は古い版のままです。再読み込みすると新しい版になります。このまま遊ぶと、ルールが前のままで、ランキングにも載りません。
+    </p>
+    <button class="btn win" type="button" @click="reloadApp">再読み込みする</button>
+    <button class="btn" type="button" @click="store.dismissOutdated()">このまま遊ぶ</button>
   </SheetLayer>
   <MenuSheet
     v-else-if="panel === 'menu'"

@@ -7,6 +7,7 @@
 import { defineStore } from 'pinia';
 import { ref } from 'vue';
 import {
+  ENGINE_VERSION,
   mergeProgress,
   newUnlocks,
   progressAfter,
@@ -58,8 +59,11 @@ export const useAccountStore = defineStore('account', () => {
    * （端末だけのランで解禁したものは、サーバーが 403 で断る）
    */
   const serverProgress = ref<Progress | null>(null);
-  /** 端末だけのランになった理由（直前に始めたランについて。ラン終了のシートに出す） */
-  const localReason = ref<'offline' | 'locked'>('offline');
+  /**
+   * 端末だけのランになった理由（直前に始めたランについて。ラン終了のシートに出す）。
+   * outdated は、画面の engine の版がサーバーより古かった（再読み込みを促す）
+   */
+  const localReason = ref<'offline' | 'locked' | 'outdated'>('offline');
   /** 送っている途中の記録（新しいランを始める前に待つ） */
   let sending: Promise<void> = Promise.resolve();
   /** 名前と解禁の状態を聞いている途中（端末だけのランを始める前に待つ） */
@@ -105,7 +109,13 @@ export const useAccountStore = defineStore('account', () => {
     localReason.value = 'offline';
     if (loadPending(storage).length) return null;
     try {
-      return await api.startRun(choice);
+      const ranked = await api.startRun(choice);
+      // サーバーの engine の版がこの画面より新しい（デプロイの前に読み込んだ画面のまま）: ランキングには載せられない
+      if (ranked.engineVersion > ENGINE_VERSION) {
+        localReason.value = 'outdated';
+        return null;
+      }
+      return ranked;
     } catch (e) {
       if (e instanceof ApiError && e.code === 'locked') localReason.value = 'locked';
       return null;

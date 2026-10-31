@@ -14,6 +14,8 @@ const server = {
   finished: [] as { runId: string; actions: number }[],
   /** サーバーに記録してある解禁の状態 */
   progress: EMPTY_PROGRESS as Progress,
+  /** サーバーの engine の版（画面より新しい版がデプロイされたときを試す） */
+  engineVersion: ENGINE_VERSION,
 };
 
 async function fakeFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
@@ -25,7 +27,7 @@ async function fakeFetch(input: RequestInfo | URL, init?: RequestInit): Promise<
     const choice = JSON.parse(String(init?.body));
     const start = makeStart(server.progress, choice.character, choice.dan);
     if (!start) return Response.json({ error: 'locked' }, { status: 403 });
-    return Response.json({ id: 'run-1', seed: server.seed, engineVersion: ENGINE_VERSION, start }, { status: 201 });
+    return Response.json({ id: 'run-1', seed: server.seed, engineVersion: server.engineVersion, start }, { status: 201 });
   }
   const finish = /^\/api\/runs\/(.+)\/finish$/.exec(path);
   if (finish) {
@@ -47,6 +49,7 @@ beforeEach(() => {
   server.finishError = 0;
   server.finished = [];
   server.progress = EMPTY_PROGRESS;
+  server.engineVersion = ENGINE_VERSION;
   setActivePinia(createPinia());
 });
 
@@ -186,6 +189,26 @@ describe('ランキングに載せるラン', () => {
     await store.startRun();
     expect(store.runId).toBe('run-1');
     expect(store.log.seed).toBe(server.seed);
+  });
+
+  it('サーバーの版が画面より新しければ、端末だけのランにして再読み込みを促す', async () => {
+    server.online = true;
+    server.engineVersion = ENGINE_VERSION + 1;
+    const store = useGameStore();
+    await store.init();
+    expect(store.runId).toBeNull();
+    expect(store.outdated).toBe(true);
+    expect(useAccountStore().localReason).toBe('outdated');
+    playToEnd(store);
+    expect(useAccountStore().submission?.status).toBe('local');
+    expect(server.finished).toHaveLength(0);
+  });
+
+  it('サーバーの版が同じなら再読み込みを促さない', async () => {
+    server.online = true;
+    const store = useGameStore();
+    await store.init();
+    expect(store.outdated).toBe(false);
   });
 
   it('サーバーの一時的な障害（5xx）は送り直し待ちにし、残っている間は新しいランを端末だけのランにする', async () => {

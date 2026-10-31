@@ -28,15 +28,20 @@ const orasuPrize = computed(() => {
 /** ランが終わって新しく解禁されたもの */
 const unlocked = computed(() => (store.unlocks && run.value.phase !== 'shop' ? unlockLines(store.unlocks) : []));
 
+/** 端末だけのランになった理由ごとの説明 */
+const LOCAL_REASON_TEXT: Record<typeof account.localReason, string> = {
+  locked: 'このランは、この端末だけで解禁した雀士・段位で始めたので、ランキングには載りません。',
+  outdated: 'このランは、古い版の画面で始めたので、ランキングには載りません。再読み込みすると新しい版になります。',
+  offline: 'このランは、始めたときにサーバーにつながらなかったので、ランキングには載りません。',
+};
+
 /** ランが終わったときの、ランキングへの記録の様子 */
 const submissionText = computed(() => {
   const s = account.submission;
   if (!s || run.value.phase === 'shop') return '';
   switch (s.status) {
     case 'local':
-      return account.localReason === 'locked'
-        ? 'このランは、この端末だけで解禁した雀士・段位で始めたので、ランキングには載りません。'
-        : 'このランは、始めたときにサーバーにつながらなかったので、ランキングには載りません。';
+      return LOCAL_REASON_TEXT[account.localReason];
     case 'sending':
       return '記録を送っています…';
     case 'recorded':
