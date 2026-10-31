@@ -1,6 +1,6 @@
 <script setup lang="ts">
 /**
- * プチ麻雀について: ゲームの説明、β版の説明と集める情報（docs/SPEC.md フェーズ 4.5）、kan-game.app へのリンク、
+ * Pu-Jan について: ゲームの説明、β版の説明と集める情報（docs/SPEC.md フェーズ 4.5）、kan-game.app へのリンク、
  * 使っている素材と書体のライセンス、版
  */
 import { ENGINE_VERSION } from '@pujan/engine';
@@ -12,15 +12,15 @@ const APP_VERSION = __APP_VERSION__;
 </script>
 
 <template>
-  <SheetLayer label="プチ麻雀について" dismissible @close="emit('close')">
-    <h2>プチ麻雀について</h2>
+  <SheetLayer label="Pu-Jan について" dismissible @close="emit('close')">
+    <h2>Pu-Jan について</h2>
     <p class="note">
       手牌を5枚（対子＋面子）に縮めた麻雀を、ローグライトとして遊ぶゲームです。東南西北の4つの場を、アイテムを集めながら勝ち抜きます。
     </p>
     <section class="about">
       <h3>β版について</h3>
       <p class="note">
-        プチ麻雀はβ版です。遊んだ感想をもとに、ルール・数値・画面を変えていきます。感想はメニューの「感想を送る」から送れます。
+        Pu-Jan はβ版です。遊んだ感想をもとに、ルール・数値・画面を変えていきます。感想はメニューの「感想を送る」から送れます。
       </p>
       <p class="note">
         β版の間は、ルールを変えたときに、進めている途中のランが続きから遊べなくなることがあります（開き直すと新しいランが始まります）。解禁した雀士・段位・役はそのまま残ります。
@@ -38,7 +38,7 @@ const APP_VERSION = __APP_VERSION__;
     <section class="about">
       <h3>kan-game.app</h3>
       <p class="note">
-        プチ麻雀は <a :href="portalUrl('/')" target="_blank" rel="noopener">kan-game.app</a> のゲームの1つです。プレイヤー名とアカウントは kan-game.app のゲームで共通です。
+        Pu-Jan は <a :href="portalUrl('/')" target="_blank" rel="noopener">kan-game.app</a> のゲームの1つです。プレイヤー名とアカウントは kan-game.app のゲームで共通です。
       </p>
       <p class="note">
         <a :href="portalUrl('/terms')" target="_blank" rel="noopener">利用規約</a>・

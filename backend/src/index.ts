@@ -1,5 +1,5 @@
 /**
- * プチ麻雀の API（docs/SPEC.md §5）。SPA は同じ Worker の Static Assets が配り、/api/* だけがここに届く。
+ * Pu-Jan の API（docs/SPEC.md §5）。SPA は同じ Worker の Static Assets が配り、/api/* だけがここに届く。
  *
  * - /api/id/*: kan-game.app の ID 基盤へ中継する
  * - /api/me・/api/profile: ランキングに出す名前と公開への同意

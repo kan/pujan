@@ -23,8 +23,8 @@ export default defineConfig({
     VitePWA({
       registerType: 'autoUpdate',
       manifest: {
-        name: 'プチ麻雀',
-        short_name: 'プチ麻雀',
+        name: 'Pu-Jan',
+        short_name: 'Pu-Jan',
         description: '手牌5枚の麻雀ローグライト',
         theme_color: '#1e4637',
         background_color: '#1e4637',

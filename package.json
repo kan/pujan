@@ -2,7 +2,7 @@
   "name": "pujan",
   "version": "0.0.1",
   "private": true,
-  "description": "プチ麻雀 — 手牌5枚の麻雀ローグライト",
+  "description": "Pu-Jan — 手牌5枚の麻雀ローグライト",
   "scripts": {
     "dev": "npm run dev:all",
     "dev:all": "node scripts/dev.mjs",

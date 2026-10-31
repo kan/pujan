@@ -99,7 +99,7 @@ const hint = computed(() => {
 <template>
   <div class="app">
     <header>
-      <h1>プチ麻雀<span class="beta" title="β版">β</span></h1>
+      <h1>Pu-Jan<span class="beta" title="β版">β</span></h1>
       <span class="spacer" />
       <button class="ghost" type="button" @click="emit('openHelp')">役</button>
       <button class="ghost" type="button" aria-haspopup="dialog" @click="emit('openMenu')">メニュー</button>

@@ -4,7 +4,7 @@ import type { Bindings } from './types';
 import { deleteAccount } from './lib/account';
 
 /**
- * プチ麻雀が kan-game.app の ID 基盤に提供するもの。ID 基盤は GAME_PUJAN として binding する
+ * Pu-Jan が kan-game.app の ID 基盤に提供するもの。ID 基盤は GAME_PUJAN として binding する
  * （kan/game docs/ID_DESIGN.md「ゲームとの RPC」）。名前付きの entrypoint なので、binding からは
  * このメソッドだけに届き、HTTP の API には届かない。
  */

@@ -47,7 +47,7 @@ const naming = ref(false);
       <!-- 雀士と段位を選ぶ準備の画面で、今のランをやめることを確かめる -->
       <button class="btn" type="button" @click="emit('newRun')">新しいランを始める</button>
       <button class="btn" type="button" @click="emit('open', 'feedback')">感想を送る</button>
-      <button class="btn" type="button" @click="emit('open', 'about')">プチ麻雀について</button>
+      <button class="btn" type="button" @click="emit('open', 'about')">Pu-Jan について</button>
     </nav>
 
     <button class="btn" type="button" @click="emit('close')">閉じる</button>

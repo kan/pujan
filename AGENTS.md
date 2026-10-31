@@ -1,6 +1,6 @@
-# プチ麻雀（pujan）— エージェント向け開発ガイド
+# Pu-Jan（pujan）— エージェント向け開発ガイド
 
-プチ麻雀は、手牌を 5 枚（雀頭 2 ＋面子 3）に縮めた麻雀を、Balatro 型のローグライトとして遊ぶ Web ゲーム。kan-game.app のゲームの 1 つで、本番は `https://pujan.kan-game.app`（予定）。
+Pu-Jan は、手牌を 5 枚（雀頭 2 ＋面子 3）に縮めた麻雀を、Balatro 型のローグライトとして遊ぶ Web ゲーム。kan-game.app のゲームの 1 つで、本番は `https://pujan.kan-game.app`（予定）。
 
 ## 仕様の参照
 

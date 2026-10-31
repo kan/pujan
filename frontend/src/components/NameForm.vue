@@ -1,6 +1,6 @@
 <script setup lang="ts">
 /**
- * ランキングに出す名前の登録と、プチ麻雀での公開への同意（kan/game docs/ID_DESIGN.md「名前」）。
+ * ランキングに出す名前の登録と、Pu-Jan での公開への同意（kan/game docs/ID_DESIGN.md「名前」）。
  * 名前は kan-game.app 全体で 1 つ。ほかのゲームで登録済みなら、同意だけを求める。
  */
 import { ref } from 'vue';
@@ -32,14 +32,14 @@ async function register(value: string) {
   <div class="nameform">
     <h3 class="subhead">ランキングに参加する</h3>
     <template v-if="account.kanGameName">
-      <p class="note">kan-game.app の名前「{{ account.kanGameName }}」で、プチ麻雀のランキングに載ります。</p>
+      <p class="note">kan-game.app の名前「{{ account.kanGameName }}」で、Pu-Jan のランキングに載ります。</p>
       <button class="btn win" type="button" :disabled="registering" @click="register(account.kanGameName!)">
         この名前で参加する
       </button>
     </template>
     <form v-else @submit.prevent="register(nameInput)">
       <p class="note">
-        名前は kan-game.app のゲームで共通です。登録すると、プチ麻雀のランキングにこの名前で載ります。名前はあとから変えられません。
+        名前は kan-game.app のゲームで共通です。登録すると、Pu-Jan のランキングにこの名前で載ります。名前はあとから変えられません。
       </p>
       <input v-model="nameInput" type="text" maxlength="40" autocomplete="nickname" placeholder="名前（2〜20文字）" aria-label="名前" />
       <button class="btn win" type="submit" :disabled="registering || !nameInput.trim()">登録して参加する</button>

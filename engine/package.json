@@ -2,7 +2,7 @@
   "name": "@pujan/engine",
   "version": "0.0.1",
   "private": true,
-  "description": "プチ麻雀のルールエンジン（純粋 TypeScript、フレームワーク非依存）",
+  "description": "Pu-Jan のルールエンジン（純粋 TypeScript、フレームワーク非依存）",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",

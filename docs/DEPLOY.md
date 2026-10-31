@@ -1,6 +1,6 @@
 # 環境の作成とデプロイ
 
-プチ麻雀の Worker は、API と画面（Static Assets）を 1 つで配る。環境は `backend/wrangler.jsonc` の `env` にある。
+Pu-Jan の Worker は、API と画面（Static Assets）を 1 つで配る。環境は `backend/wrangler.jsonc` の `env` にある。
 
 | 環境 | ホスト | Worker | D1 | ID 基盤（kan/game） |
 |---|---|---|---|---|
@@ -41,7 +41,7 @@ npm run deploy:dev                         # マイグレーションの適用 �
 
 ### 3. kan/game 側の変更を依頼する
 
-ID 基盤の変更は、このリポジトリの作業からは行わない（AGENTS.md「kan/game との関係」）。kan/game の `wrangler.jsonc` の `env.dev` に、次の変更を依頼する。プチ麻雀の Worker がデプロイされてから行う（Service Binding の先が存在しないと、kan/game のデプロイが失敗するため）。
+ID 基盤の変更は、このリポジトリの作業からは行わない（AGENTS.md「kan/game との関係」）。kan/game の `wrangler.jsonc` の `env.dev` に、次の変更を依頼する。Pu-Jan の Worker がデプロイされてから行う（Service Binding の先が存在しないと、kan/game のデプロイが失敗するため）。
 
 - `ALLOWED_ORIGINS` に `https://pujan-dev.kan-game.app` を足す（ID の API を呼べるオリジン）
 - `services` に `{ "binding": "GAME_PUJAN", "service": "pujan-dev", "entrypoint": "GameService" }` を足す（退会のときに記録を消す RPC）
