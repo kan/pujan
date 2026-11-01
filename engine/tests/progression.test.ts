@@ -93,9 +93,9 @@ describe('雀士と段位のルール', () => {
     const g = firstKyoku(1, { ...DEFAULT_START, character: 'menzen' });
     expect(g.run.base.holdSlots).toBe(0);
     expect(g.run.base.next).toBe(4);
-    // かめは巡数が 3 多い。段位で巡数が減っても上乗せになる（四段は 11 巡なので 14 巡）
-    expect(g.run.base.turns).toBe(15);
-    expect(createGame(1, { start: { ...DEFAULT_START, character: 'menzen', dan: 3 } }).run.base.turns).toBe(14);
+    // かめの巡数はほかの雀士と同じ（四段は 11 巡）
+    expect(g.run.base.turns).toBe(12);
+    expect(createGame(1, { start: { ...DEFAULT_START, character: 'menzen', dan: 3 } }).run.base.turns).toBe(11);
     expect(createGame(1, { start: { ...DEFAULT_START, character: 'oya' } }).run.money).toBe(2);
     // 固有のお守りは枠に数えないので、買ったお守りの一覧（charms）には入らない
     expect(g.run.charms).toEqual([]);

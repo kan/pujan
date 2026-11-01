@@ -131,10 +131,9 @@ export const CHARACTERS: readonly CharacterDef[] = [
   {
     id: 'menzen',
     name: 'かめ',
-    description: '門前型。保留なし・ネクスト4枚・1局の巡数＋3。黙聴（門前が2翻）を持って始める',
+    description: '門前型。保留なし・ネクスト4枚。黙聴（門前が2翻）を持って始める',
+    // 4 場の形では和了りにくさを巡数＋3 で補っていたが、東風戦では点数が伸びすぎたのでなくした（docs/SPEC.md §4.6）
     base: { holdSlots: 0, next: 4 },
-    // 保留がないぶん和了りにくいので、巡数で補う（段位で巡数が減っても、この分は上乗せ。docs/SPEC.md §4.6）
-    turnsDelta: 3,
     charms: ['damaten'],
     equipment: [],
     money: BASE_START_MONEY,
