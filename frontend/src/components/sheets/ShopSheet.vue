@@ -8,6 +8,8 @@ import { computed, ref } from 'vue';
 import {
   ALL_KINDS,
   GACHA,
+  INTEREST_MAX,
+  INTEREST_STEP,
   MAX_CHARMS,
   MAX_CONSUMABLES,
   REROLL_PRICE,
@@ -18,13 +20,29 @@ import {
   gachaRefund,
   hasGacha,
   innateCharms,
+  upcomingKyoku,
   type BuyBlocker,
   type GameAction,
   type Kind,
 } from '@pujan/engine';
 import { useGameStore } from '@/stores/game';
 import { OFFER_KIND_LABEL } from '@pujan/engine';
-import { GACHA_TEXT, charmDef, charmSlotText, compositionText, consumableDef, equipDef, modifiedKinds, offerText, receivedText } from '@/lib/labels';
+import {
+  GACHA_TEXT,
+  bossDef,
+  charmDef,
+  charmSlotText,
+  compositionText,
+  consumableDef,
+  equipDef,
+  missionLabel,
+  modifiedKinds,
+  offerText,
+  orasuRuleText,
+  receivedText,
+  roundLabel,
+  timesLabel,
+} from '@/lib/labels';
 import MjTile from '../MjTile.vue';
 import SheetLayer from '../SheetLayer.vue';
 
@@ -77,11 +95,12 @@ const prize = computed(() => {
   const p = run.value.gacha?.prize;
   return p ? { ...p, ...receivedText(p, run.value.yakuLevels) } : null;
 });
-/** 直前のオーラスの和了でもらった品 */
-const orasuPrize = computed(() => {
-  const p = run.value.orasuPrize;
-  return p ? { ...p, ...receivedText(p, run.value.yakuLevels) } : null;
-});
+/** ショップを出たあとに始まる局（「東2局」） */
+const nextKyoku = computed(() => roundLabel(upcomingKyoku(run.value), 0, false));
+/** ランの始めのショップ（お題・親番・ボスを案内する） */
+const first = computed(() => run.value.afterShop === 'firstKyoku');
+const boss = computed(() => bossDef(run.value.round.boss));
+const orasuRule = computed(() => orasuRuleText(run.value));
 
 const comp = computed(() => run.value.composition);
 const modified = computed(() => modifiedKinds(run.value));
@@ -110,11 +129,22 @@ const equipNames = computed(() => run.value.equipment.map((id) => equipDef(id).n
   </SheetLayer>
 
   <SheetLayer v-else label="ショップ">
+    <section v-if="first" class="intro" aria-label="このランのお題">
+      <h2>このランのお題</h2>
+      <ul class="missions">
+        <li v-for="(m, i) in run.missions" :key="i">
+          <span class="ty">{{ timesLabel(m.times) }}</span>{{ missionLabel(m) }}
+        </li>
+      </ul>
+      <p class="note">
+        東4局を終えたときに1つ以上果たしていればクリア。果たしたお題の倍率の合計を、4局の合計点に掛けて記録にします。
+        親番は{{ roundLabel(run.round.dealer, 0, false) }}、東4局のボスは「{{ boss.name }}」（{{ boss.description }}）。
+        <template v-if="orasuRule">この段位では、{{ orasuRule }}。</template>
+      </p>
+    </section>
     <h2>ショップ<span class="pts">祝儀 {{ run.money }}</span></h2>
     <p v-if="notice" class="note warn" role="alert">{{ notice }}</p>
-    <p v-if="orasuPrize" class="note">
-      オーラスの和了の褒美に、{{ OFFER_KIND_LABEL[orasuPrize.kind] }}「{{ orasuPrize.name }}」をもらいました（{{ orasuPrize.description }}）。
-    </p>
+    <p v-if="run.interest" class="note">利子で祝儀を{{ run.interest }}もらいました（{{ INTEREST_STEP }}ごとに1、最大{{ INTEREST_MAX }}）。</p>
     <div class="cards">
       <div v-for="(o, i) in offers" :key="i" class="card" :class="{ sold: o.sold }">
         <div class="ct">
@@ -160,7 +190,7 @@ const equipNames = computed(() => run.value.equipment.map((id) => equipDef(id).n
       <button class="btn" type="button" :disabled="run.money < REROLL_PRICE" @click="act({ type: 'reroll' })">
         品替え {{ REROLL_PRICE }}
       </button>
-      <button class="btn win" type="button" @click="act({ type: 'leave' })">次へ</button>
+      <button class="btn win" type="button" @click="act({ type: 'leave' })">{{ nextKyoku }}へ</button>
     </div>
     <p class="note">
       {{ charmSlotText(run) }} ・ 消耗品 {{ run.consumables.length }}/{{ MAX_CONSUMABLES }} ・ 設備
@@ -189,3 +219,30 @@ const equipNames = computed(() => run.value.equipment.map((id) => equipDef(id).n
     </div>
   </SheetLayer>
 </template>
+
+<style scoped>
+.intro {
+  border: 1px solid var(--gold);
+  border-radius: 8px;
+  padding: 8px 12px;
+}
+.missions {
+  margin: 0 0 6px;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 4px;
+  font-size: 15px;
+}
+.missions .ty {
+  display: inline-block;
+  min-width: 3em;
+  margin-right: 8px;
+  font-size: 12px;
+  color: var(--gold);
+  border: 1px solid var(--gold);
+  border-radius: 4px;
+  padding: 0 5px;
+  text-align: center;
+}
+</style>

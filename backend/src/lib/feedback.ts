@@ -21,8 +21,8 @@ export async function saveFeedback(
 ): Promise<boolean> {
   const result = await db
     .prepare(
-      `INSERT INTO feedback (id, account_id, created_at, body, run_id, character, dan, wave, finished, score, engine_version, app_version)
-       SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+      `INSERT INTO feedback (id, account_id, created_at, body, run_id, character, dan, kyoku, missions, finished, cleared, score, engine_version, app_version)
+       SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
        WHERE (SELECT COUNT(*) FROM feedback WHERE account_id = ? AND created_at > ?) < ?`,
     )
     .bind(
@@ -33,8 +33,10 @@ export async function saveFeedback(
       ctx.runId ?? null,
       ctx.character ?? null,
       ctx.dan ?? null,
-      ctx.wave ?? null,
+      ctx.kyoku ?? null,
+      ctx.missions ?? null,
       ctx.finished === undefined ? null : Number(ctx.finished),
+      ctx.cleared == null ? null : Number(ctx.cleared),
       ctx.score ?? null,
       ctx.engineVersion ?? null,
       ctx.appVersion ?? null,

@@ -201,6 +201,39 @@ h1 .beta {
   font-weight: 400;
   font-size: 12px;
 }
+/* お題と進み具合（果たしたら金） */
+.mission {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+.mission .mt {
+  color: var(--gold);
+  border: 1px solid var(--gold);
+  border-radius: 4px;
+  padding: 0 5px;
+  font-size: 11px;
+}
+.mission .ml {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.mission .mp {
+  margin-left: auto;
+  font-size: 14px;
+}
+.mission.done .mp {
+  color: var(--gold);
+}
+/* お題ごとの進捗バー（行の右端の短い帯） */
+.mission .bar {
+  flex: 0 0 48px;
+  align-self: center;
+}
 .bar {
   height: 4px;
   background: rgba(0, 0, 0, 0.35);

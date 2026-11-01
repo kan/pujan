@@ -307,8 +307,9 @@ describe('ラン', () => {
   });
 
   it('連荘のあいだはショップを開かず、連荘が途切れたところで開く', () => {
-    const run = createRun(3);
-    const dealer = { ...run, round: { ...run.round, kyoku: run.round.dealer } };
+    // 東 1 局が親番（オーラスでないので、親が流れるとショップが開く）
+    const run = leaveShop(createRun(3));
+    const dealer = { ...run, round: { ...run.round, kyoku: 0, dealer: 0 } };
     let g: GameState = { ...beginKyoku(dealer), previous: null };
     let renchans = 0;
     // 親の局を和了るまで打ち、和了れば連荘する。流局で親が流れたら終わり

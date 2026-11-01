@@ -7,13 +7,13 @@
 //     --hold N    保留枠（既定 3）      --next N   ネクスト（既定 2）
 //     --turns N   巡数（既定 12）       --target 名前  1 つの形だけ測る
 //     --dye N     1 巡目に染め粉を使い、この色を残す（0 萬子・1 筒子・2 索子。字牌はいつも残る）
-//   runs [オプション]          AI にランを遊ばせ、アイテムごとに進めた場を比べる
+//   runs [オプション]          AI にランを遊ばせ、アイテムごとにお題のクリア率と点数を比べる
 //     --runs N    アイテムごとのラン数（既定 100）  --seed N  シード（既定 1）
 //     --items a,b アイテムの id（既定 all = お守りと設備をすべて）。牌の改造は「id:牌の番号」で、
 //                 最初から当てておく（例: shu:13 は 5 筒を朱塗り。番号は tiles.ts。+ でつなぐと重ねる: utsushi:13+shu:13）
 //     --no-riichi 聴牌してもリーチしない
 //     --buy       ショップでお守りと設備を買う（祝儀が効くアイテム、金箔などを比べるとき）
-//   starts [オプション]        AI にランを遊ばせ、雀士と段位ごとに進めた場を比べる（バランスの確認。SPEC フェーズ 4.5）
+//   starts [オプション]        AI にランを遊ばせ、雀士と段位ごとにお題のクリア率を比べる（バランスの確認。SPEC フェーズ 4.6）
 //     --runs N    組み合わせごとのラン数（既定 100）  --seed N  シード（既定 1）
 //     --characters a,b  雀士の id（既定 all）        --dans 0,1  段位（既定 all）
 //     --unlocked all|none  解禁済みの役（既定 all = 巻物とお守りがすべて並ぶ）
@@ -67,6 +67,24 @@ const int = (name, min = 0) => {
   return n;
 };
 const pct = (p) => `${(p * 100).toFixed(1)}%`;
+const mean = (sum, n) => Math.round(sum / n).toLocaleString('en-US');
+
+/** 結果の 1 行の数（クリア率・平均の合計点・平均の記録点・果たしたお題の数ごとのラン数・局の和了率） */
+const resultCells = (r) => [
+  pct(r.cleared / r.runs),
+  mean(r.score, r.runs),
+  mean(r.record, r.runs),
+  Array.from({ length: Math.max(r.metCount.length, 3) }, (_, i) => r.metCount[i] ?? 0).join('/'),
+  pct(r.winRate),
+];
+const RESULT_HEADER = 'クリア率\t平均の合計点\t平均の記録点\t果たした数 0/1/2/3\t局の和了率';
+
+/** お題の種類と段ごとの、果たした数と掲げた数（「回数・段2 45/60」） */
+const byMissionCell = (r) =>
+  Object.entries(r.byMission)
+    .sort(([a], [b]) => a.localeCompare(b, 'ja'))
+    .map(([k, t]) => `${k} ${t.met}/${t.runs}`)
+    .join('、');
 const progress = (msg) => process.stderr.write(`\r${msg}\x1b[K`);
 
 /**
@@ -195,13 +213,14 @@ function runs() {
   console.log(
     `アイテムごとに ${opts.runs} ラン（AI ${opts.ai}、${opts.buy ? (opts.ai === 'smart' ? 'ショップで買う' : 'ショップでお守りと設備を買う') : 'ショップでは何も買わない'}${opts.gacha ? '、福引きを回す' : ''}${opts.riichi ? '' : '、リーチしない'}）`,
   );
-  console.log('アイテム\t突破した場の平均\t差\t東/南/西/北で終了/全場クリア\t局の和了率');
+  console.log(`アイテム\t${RESULT_HEADER}\tクリア率の差`);
   let baseline = 0;
   const list = cases.map((c) => ({ label: c.name, opts: { ...opts, charms: c.charms, equipment: c.equipment, mods: c.mods } }));
   return runEach(list, ({ label }, r) => {
-    if (label === 'なし') baseline = r.meanCleared;
-    const diff = r.meanCleared - baseline;
-    console.log(`${label}\t${r.meanCleared.toFixed(2)}\t${diff >= 0 ? '+' : ''}${diff.toFixed(2)}\t${r.reached.join('/')}\t${pct(r.winRate)}`);
+    const rate = r.cleared / r.runs;
+    if (label === 'なし') baseline = rate;
+    const diff = (rate - baseline) * 100;
+    console.log(`${label}\t${resultCells(r).join('\t')}\t${diff >= 0 ? '+' : ''}${diff.toFixed(1)}pt`);
   });
 }
 
@@ -214,7 +233,7 @@ function starts() {
   console.log(
     `雀士と段位ごとに ${opts.runs} ラン（AI ${opts.ai}、${opts.buy ? (opts.ai === 'smart' ? 'ショップで買う' : 'ショップでお守りと設備を買う') : 'ショップでは何も買わない'}${opts.gacha ? '、福引きを回す' : ''}、解禁 ${values.unlocked}）`,
   );
-  console.log('雀士\t段位\t突破した場の平均\t東/南/西/北で終了/全場クリア\t全場クリア率\t局の和了率');
+  console.log(`雀士\t段位\t${RESULT_HEADER}\tお題の種類と段ごとの果たした数/掲げた数`);
   const list = [];
   for (const character of characters) {
     const name = CHARACTERS.find((c) => c.id === character)?.name;
@@ -225,8 +244,7 @@ function starts() {
     }
   }
   return runEach(list, ({ label }, r) => {
-    const cleared = r.reached[r.reached.length - 1] / r.runs;
-    console.log(`${label}\t${r.meanCleared.toFixed(2)}\t${r.reached.join('/')}\t${pct(cleared)}\t${pct(r.winRate)}`);
+    console.log(`${label}\t${resultCells(r).join('\t')}\t${byMissionCell(r)}`);
   });
 }
 

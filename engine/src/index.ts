@@ -5,6 +5,7 @@ export * from './score.js';
 export * from './win.js';
 export * from './items.js';
 export * from './kyoku.js';
+export * from './mission.js';
 export * from './run.js';
 export * from './game.js';
 export * from './progression.js';

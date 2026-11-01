@@ -3,7 +3,7 @@
  *
  * - /api/id/*: kan-game.app の ID 基盤へ中継する
  * - /api/me・/api/profile: ランキングに出す名前と公開への同意
- * - /api/runs: ランの開始（サーバーがシードを渡す）と、終わったランの記録（操作ログを再生して確かめる）
+ * - /api/runs: ランの開始（サーバーがシードを渡す）、局ごとの途中経過、終わったランの記録（操作ログを再生して確かめる）
  * - /api/rankings/weekly: 週ごとのランキング
  * - /api/feedback: 遊んだ人の感想（β公開。docs/SPEC.md フェーズ 4.5）
  */
@@ -15,7 +15,7 @@ import type { AppEnv } from './types';
 import { authMiddleware } from './middleware/auth';
 import { idPlatform } from './lib/id-auth';
 import { getProfileName, nameOutcome, registerProfile } from './lib/profile';
-import { finishRun, MAX_ACTIONS, startRun } from './lib/runs';
+import { finishRun, MAX_ACTIONS, recordProgress, startRun } from './lib/runs';
 import { loadProgress } from './lib/progress';
 import { saveFeedback } from './lib/feedback';
 import { weeklyRanking } from './lib/ranking';
@@ -126,14 +126,28 @@ api.post('/runs/:id/finish', bodyLimit({ maxSize: 512 * 1024 }), async (c) => {
   }
 });
 
+/** 途中経過（精算した局の数）。集計にだけ使うので、形だけ見る */
+const progressSchema = z.object({ kyoku: z.number().int().min(1).max(MAX_ACTIONS) });
+
+// POST /api/runs/:id/progress — 局を終えた途中経過を残す（docs/SPEC.md §5.3）。終わったランやほかの ID のランは 404
+api.post('/runs/:id/progress', bodyLimit({ maxSize: 1024 }), async (c) => {
+  const body = progressSchema.safeParse(await c.req.json().catch(() => null));
+  if (!body.success) return c.json({ error: 'invalid_request' }, 400);
+  const saved = await recordProgress(c.env.DB, c.get('accountId'), c.req.param('id'), body.data.kyoku);
+  if (!saved) return c.json({ error: 'not_found' }, 404);
+  return c.json({ ok: true });
+});
+
 /** 感想。添えるランの様子は画面が送る参考の値なので、形と長さだけ見る */
 // engine の FeedbackContext と項目がずれたら型検査で分かるように satisfies で結ぶ
 const feedbackContextSchema = z.object({
   runId: z.string().max(64).nullable(),
   character: z.string().max(32),
   dan: z.number().int().min(0).max(99),
-  wave: z.number().int().min(0).max(99),
+  kyoku: z.number().int().min(0).max(99),
+  missions: z.string().max(300),
   finished: z.boolean(),
+  cleared: z.boolean().nullable(),
   score: z.number().int(),
   engineVersion: z.number().int(),
   appVersion: z.string().max(64),

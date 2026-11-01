@@ -2,7 +2,8 @@
  * 感想（docs/SPEC.md フェーズ 4.5）の形。画面が作って送り、サーバーが形と長さを確かめて残す。
  */
 import { ENGINE_VERSION, isFinished, type GameState } from './game.js';
-import { runSummary } from './run.js';
+import { missionText } from './mission.js';
+import { KYOKU_COUNT, missionResultsOf, upcomingKyoku, type RunState } from './run.js';
 
 /** 本文の長さの上限（文字数） */
 export const FEEDBACK_MAX_LENGTH = 1000;
@@ -13,29 +14,37 @@ export interface FeedbackContext {
   runId: string | null;
   character: string;
   dan: number;
-  /** 突破した場の数（0〜4。進めているランでは、今の場の番号と同じ） */
-  wave: number;
+  /** 終えた局の数（0〜4。親の連荘の本場は数えない） */
+  kyoku: number;
+  /** お題と、果たしたか（「×1 和了 2 回（済）・×1.5 合計 6,000 点以上・×2 清一色で和了る」） */
+  missions: string;
   finished: boolean;
-  /** 進めている場の点数（場を突破した直後のショップでは次の場の 0）。ランが終わっていれば合計点 */
+  /** お題を果たしてクリアしたか（ランが終わる前は null） */
+  cleared: boolean | null;
+  /** ここまでの合計点 */
   score: number;
   engineVersion: number;
   appVersion: string;
 }
 
+/** 終えた局の数（次に打つ局の番号と同じ。ランが終わっていれば 4） */
+const kyokuDone = (run: RunState): number =>
+  run.phase === 'over' || run.phase === 'cleared' ? KYOKU_COUNT : upcomingKyoku(run);
+
 export function feedbackContext(game: GameState, runId: string | null, appVersion: string): FeedbackContext {
   const { run } = game;
-  const summary = isFinished(game) ? runSummary(run) : null;
-  // 場を突破した直後のショップでは、run.wave はまだ突破した場のまま（ショップを出ると次の場に進む）。
-  // 突破した場の数は、終わった場の点数の数（waveScores）で数える
-  const cleared = run.waveScores.length;
-  const betweenWaves = run.phase === 'shop' && run.afterShop === 'nextWave';
+  const finished = isFinished(game);
   return {
     runId,
     character: run.start.character,
     dan: run.start.dan,
-    wave: summary ? summary.wavesCleared : cleared,
-    finished: !!summary,
-    score: summary ? summary.totalScore : betweenWaves ? 0 : run.round.score,
+    kyoku: kyokuDone(run),
+    missions: missionResultsOf(run)
+      .map((m) => `${missionText(m)}${m.met ? '（済）' : ''}`)
+      .join('・'),
+    finished,
+    cleared: finished ? run.phase === 'cleared' : null,
+    score: run.round.score,
     engineVersion: ENGINE_VERSION,
     appVersion,
   };

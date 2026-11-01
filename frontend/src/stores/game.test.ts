@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { createPinia, setActivePinia } from 'pinia';
-import { EMPTY_PROGRESS, ENGINE_VERSION, makeStart, ownedCharms, type Progress } from '@pujan/engine';
+import { EMPTY_PROGRESS, ENGINE_VERSION, makeMission, makeStart, ownedCharms, type Progress } from '@pujan/engine';
 import { memoryStorage } from '@/lib/memory-storage';
 import { useAccountStore } from './account';
 import { useGameStore } from './game';
@@ -12,6 +12,8 @@ const server = {
   /** 記録の送信に返す失敗の状態（0 なら成功） */
   finishError: 0,
   finished: [] as { runId: string; actions: number }[],
+  /** 受け取った途中経過 */
+  progressed: [] as { runId: string; kyoku: number }[],
   /** サーバーに記録してある解禁の状態 */
   progress: EMPTY_PROGRESS as Progress,
   /** サーバーの engine の版（画面より新しい版がデプロイされたときを試す） */
@@ -29,12 +31,19 @@ async function fakeFetch(input: RequestInfo | URL, init?: RequestInit): Promise<
     if (!start) return Response.json({ error: 'locked' }, { status: 403 });
     return Response.json({ id: 'run-1', seed: server.seed, engineVersion: server.engineVersion, start }, { status: 201 });
   }
+  const progressed = /^\/api\/runs\/(.+)\/progress$/.exec(path);
+  if (progressed) {
+    const body = JSON.parse(String(init?.body));
+    server.progressed.push({ runId: progressed[1], kyoku: body.kyoku });
+    return Response.json({ ok: true });
+  }
   const finish = /^\/api\/runs\/(.+)\/finish$/.exec(path);
   if (finish) {
     if (server.finishError) return Response.json({ error: 'error' }, { status: server.finishError });
     const body = JSON.parse(String(init?.body));
     server.finished.push({ runId: finish[1], actions: body.log.actions.length });
-    return Response.json({ wavesCleared: 0, totalScore: 0, week: '2026-10-26', best: true, progress: server.progress });
+    const missions = [{ ...makeMission('wins', 1, 1), met: false }];
+    return Response.json({ missions, cleared: false, times: 1, totalScore: 0, recordScore: 0, week: '2026-10-26', best: true, progress: server.progress });
   }
   return Response.json({ error: 'not_found' }, { status: 404 });
 }
@@ -48,6 +57,7 @@ beforeEach(() => {
   server.online = false;
   server.finishError = 0;
   server.finished = [];
+  server.progressed = [];
   server.progress = EMPTY_PROGRESS;
   server.engineVersion = ENGINE_VERSION;
   setActivePinia(createPinia());
@@ -66,21 +76,36 @@ async function reopen() {
   return store;
 }
 
+/** 新しいランを始め、最初のショップを出る（東 1 局が始まったところ） */
+async function started() {
+  const store = useGameStore();
+  await store.init();
+  store.act({ type: 'leave' });
+  return store;
+}
+
 describe('ゲームのストア', () => {
   it('保存がなければ新しいランを始め、操作ログを保存する', async () => {
     const store = useGameStore();
     await store.init();
-    expect(store.acting).toBe(true);
-    // 最初はツモ牌を選んでいる
-    expect(store.selection).toEqual({ zone: 'drawn', index: 0 });
+    // ランは最初のショップから始まり、お題は 3 つ
+    expect(store.run.phase).toBe('shop');
+    expect(store.run.missions).toHaveLength(3);
+    expect(store.acting).toBe(false);
     const saved = JSON.parse(storage.data.get('pujan.run.v1')!);
     expect(saved.engineVersion).toBe(ENGINE_VERSION);
     expect(saved.actions).toEqual([]);
   });
 
+  it('最初のショップを出ると東 1 局が始まり、ツモ牌を選んでいる', async () => {
+    const store = await started();
+    expect(store.acting).toBe(true);
+    expect(store.selection).toEqual({ zone: 'drawn', index: 0 });
+    expect(JSON.parse(storage.data.get('pujan.run.v1')!).actions).toEqual([{ type: 'leave' }]);
+  });
+
   it('1 回目のタップで選び、同じ牌の 2 回目で捨てる', async () => {
-    const store = useGameStore();
-    await store.init();
+    const store = await started();
     store.tapTile('hand', 1);
     expect(store.selection).toEqual({ zone: 'hand', index: 1 });
     expect(store.kyoku!.river).toHaveLength(0);
@@ -90,19 +115,17 @@ describe('ゲームのストア', () => {
   });
 
   it('開き直すと同じ局面に戻る', async () => {
-    const a = useGameStore();
-    await a.init();
+    const a = await started();
     discardDrawn(a, 3);
     expect(a.kyoku!.river).toHaveLength(3);
     const b = await reopen();
     expect(b.kyoku!.turn).toBe(a.kyoku!.turn);
     expect(b.kyoku!.river).toEqual(a.kyoku!.river);
-    expect(b.log.actions).toHaveLength(3);
+    expect(b.log.actions).toHaveLength(1 + 3);
   });
 
   it('選んだ牌を空き枠に保留できる', async () => {
-    const store = useGameStore();
-    await store.init();
+    const store = await started();
     store.tapTile('hand', 0);
     expect(store.canHold).toBe(true);
     const tile = store.kyoku!.hand[0];
@@ -115,19 +138,19 @@ describe('ゲームのストア', () => {
     const store = useGameStore();
     await store.init();
     expect(store.log.engineVersion).toBe(ENGINE_VERSION);
-    expect(store.acting).toBe(true);
+    expect(store.run.phase).toBe('shop');
   });
 
   it('できない操作はログに積まない', async () => {
     const store = useGameStore();
     await store.init();
-    expect(store.act({ type: 'reroll' })).toBe(false);
+    // ショップでは局の操作はできない
+    expect(store.act({ type: 'tsumo' })).toBe(false);
     expect(store.log.actions).toHaveLength(0);
   });
 
   it('局が終わると精算・ショップへ進み、直前の局を表示に残す', async () => {
-    const store = useGameStore();
-    await store.init();
+    const store = await started();
     discardDrawn(store, 30);
     if (store.kyoku?.result?.type !== 'draw') return; // まれに天和などで和了れる
     expect(store.act({ type: 'settle' })).toBe(true);
@@ -143,19 +166,6 @@ describe('ゲームのストア', () => {
     expect(reopened.run.round.kyoku).toBe(1);
   });
 
-  it('場の案内はランの始めに出て、閉じたら配牌を引き直しても戻らない', async () => {
-    const store = useGameStore();
-    await store.init();
-    expect(store.showIntro).toBe(true);
-    store.dismiss();
-    expect(store.showIntro).toBe(false);
-    if (store.canRedealNow) {
-      store.act({ type: 'redeal' });
-      expect(store.showIntro).toBe(false);
-    }
-    discardDrawn(store, 1);
-    expect(store.showIntro).toBe(false);
-  });
 });
 
 describe('ランキングに載せるラン', () => {
@@ -167,6 +177,23 @@ describe('ランキングに載せるラン', () => {
       else store.act({ type: 'leave' });
     }
   }
+
+  it('局を終えるたびに途中経過を送る（端末だけのランでは送らない）', async () => {
+    server.online = true;
+    const store = useGameStore();
+    await store.init();
+    playToEnd(store);
+    // 東 4 局の精算はランの記録（finish）で送るので、途中経過は東 1〜3 局（と連荘の本場）のぶん
+    await vi.waitFor(() => expect(server.progressed.length).toBeGreaterThanOrEqual(3));
+    expect(server.progressed.map((p) => p.kyoku)).toEqual(server.progressed.map((_, i) => i + 1));
+    expect(server.progressed.every((p) => p.runId === 'run-1')).toBe(true);
+
+    server.online = false;
+    server.progressed = [];
+    await store.startRun();
+    playToEnd(store);
+    expect(server.progressed).toEqual([]);
+  });
 
   it('サーバーにつながればサーバーのシードで始め、終わったら記録を送る', async () => {
     server.online = true;
@@ -257,7 +284,7 @@ describe('ランキングに載せるラン', () => {
 
   it('選んだ雀士と段位で始め、次のランの準備のために覚える', async () => {
     server.online = true;
-    server.progress = { yakuWon: ['役牌'], bestWaves: 2, danCleared: 0, characters: ['oya', 'speed'] };
+    server.progress = { yakuWon: ['役牌'], bestTimes: 1.5, bestWaves: 0, danCleared: 0, characters: ['oya', 'speed'] };
     const store = useGameStore();
     await store.init();
     await store.startRun({ character: 'oya', dan: 1 });

@@ -64,7 +64,7 @@ describe('解禁の状態と選んだ雀士', () => {
   it('保存して読み戻す。形が違えば初めの状態', () => {
     const s = memoryStorage();
     expect(loadProgress(s)).toEqual(EMPTY_PROGRESS);
-    const p: Progress = { yakuWon: ['役牌'], bestWaves: 2, danCleared: 0, characters: ['speed'] };
+    const p: Progress = { yakuWon: ['役牌'], bestTimes: 1.5, bestWaves: 2, danCleared: 0, characters: ['speed'] };
     saveProgress(s, p);
     expect(loadProgress(s)).toEqual(p);
     s.setItem('pujan.progress.v2', JSON.stringify({ yakuWon: [1], bestWaves: 2, danCleared: 0 }));
@@ -81,7 +81,7 @@ describe('解禁の状態と選んだ雀士', () => {
     s.setItem('pujan.progress.v1', JSON.stringify({ yakuWon: ['門前'], bestWaves: 2, danCleared: 0 }));
     expect(loadProgress(s).characters).toEqual(['menzen', 'oya', 'speed']);
     // v2 があれば、古い画面が v1 に書き戻したものは読まない
-    saveProgress(s, { yakuWon: ['門前'], bestWaves: 2, danCleared: 0, characters: ['speed'] });
+    saveProgress(s, { yakuWon: ['門前'], bestTimes: 0, bestWaves: 2, danCleared: 0, characters: ['speed'] });
     expect(loadProgress(s).characters).toEqual(['speed']);
   });
 

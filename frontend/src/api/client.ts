@@ -5,7 +5,7 @@
  * ID は起動時に POST /api/id/session でもらう（なければ発行、あれば延長）。
  * API が 410（退会した ID）を返したら、ID をもらい直してもう一度だけ送る。
  */
-import type { FeedbackContext, Progress, RunChoice, RunLog, RunStart, RunSummary } from '@pujan/engine';
+import type { FeedbackContext, Progress, RecordedSummary, RunChoice, RunLog, RunStart, RunSummary } from '@pujan/engine';
 
 export class ApiError extends Error {
   constructor(
@@ -98,8 +98,11 @@ export interface FinishedRun extends RunSummary {
   progress: Progress;
 }
 
-/** ランキングの 1 行の成績（段位 → 突破した場の数 → 合計点の順。雀士は表示だけ） */
-type RankedSummary = RunSummary & { dan: number; character: string };
+/**
+ * ランキングの 1 行の成績（段位 → クリアしたか → 記録点の順。雀士とお題は表示だけ）。
+ * お題が null なのは 4 場の形で記録した行
+ */
+type RankedSummary = RecordedSummary & { dan: number; character: string };
 
 export interface WeeklyRanking {
   week: string;
@@ -118,6 +121,9 @@ export const api = {
   startRun: (choice: RunChoice) => post<StartedRun>('/api/runs', choice, AbortSignal.timeout(START_TIMEOUT_MS)),
   finishRun: (runId: string, log: RunLog) =>
     post<FinishedRun>(`/api/runs/${encodeURIComponent(runId)}/finish`, { log }, AbortSignal.timeout(FINISH_TIMEOUT_MS)),
+  /** 局を終えた途中経過（kyoku は精算した局の数。連荘の本場も 1 局に数える） */
+  reportProgress: (runId: string, kyoku: number) =>
+    post<{ ok: true }>(`/api/runs/${encodeURIComponent(runId)}/progress`, { kyoku }, AbortSignal.timeout(START_TIMEOUT_MS)),
   sendFeedback: (body: string, context: FeedbackContext) => post<{ ok: true }>('/api/feedback', { body, context }),
   weeklyRanking: (week?: string) =>
     request<WeeklyRanking>(`/api/rankings/weekly${week ? `?week=${encodeURIComponent(week)}` : ''}`),

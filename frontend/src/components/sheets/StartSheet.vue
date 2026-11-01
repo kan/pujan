@@ -8,6 +8,7 @@ import {
   CHARACTERS,
   DANS,
   characterUnlocked,
+  timesLabel,
   clampChoice,
   makeStart,
   maxDan,
@@ -114,16 +115,18 @@ const items = computed(() => [
       </div>
       <ul class="note rules">
         <li v-for="d in DANS.slice(1, dan + 1)" :key="d.level">{{ d.name }}: {{ d.description }}</li>
-        <li v-if="dan === 0">縛りなし。全場クリアすると次の段位を選べます</li>
+        <li v-if="dan === 0">縛りなし。クリアすると次の段位を選べます</li>
       </ul>
     </section>
 
     <div class="yakulist">
-      <span>場の目標点</span><span>{{ rules.targets.map((t) => t.toLocaleString()).join('・') }}</span>
+      <span>お題</span><span>{{ rules.missionSlots.map((s) => `${timesLabel(s.times)} 段${s.tier}`).join('・') }}</span>
       <span>保留・ネクスト</span><span>{{ rules.base.holdSlots }}枠・{{ rules.base.next }}枚</span>
       <span>1局の巡数</span><span>{{ rules.base.turns }}巡</span>
       <span>始めの祝儀</span><span>{{ rules.startMoney }}</span>
-      <span>場を突破したときの祝儀</span><span>{{ rules.clearBonus }}＋利子など</span>
+      <template v-if="rules.winMoneyDelta">
+        <span>和了の祝儀</span><span>{{ rules.winMoneyDelta }}</span>
+      </template>
       <template v-if="items.length">
         <span>持ち物</span><span>{{ items.join('・') }}</span>
       </template>

@@ -62,7 +62,11 @@ describe('保留枠とネクスト', () => {
 describe('ランのシミュレーション', () => {
   it('同じシードなら同じ結果になる', { timeout: 60000 }, () => {
     const a = simulateRuns({ runs: 3, seed: 9 });
-    expect(a.reached.reduce((x, y) => x + y, 0)).toBe(3);
+    expect(a.runs).toBe(3);
+    expect(a.cleared).toBeLessThanOrEqual(3);
+    // お題は 1 ランに 3 つ掲げるので、掲げた数の合計はラン数の 3 倍。果たした数ごとのラン数の合計はラン数
+    expect(Object.values(a.byMission).reduce((n, t) => n + t.runs, 0)).toBe(9);
+    expect(a.metCount.reduce((n, c) => n + (c ?? 0), 0)).toBe(3);
     expect(simulateRuns({ runs: 3, seed: 9 })).toEqual(a);
   });
 });

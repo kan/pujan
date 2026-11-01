@@ -1,11 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import { apply, createGame, isFinished, newLog, replay, type GameState } from '../src/game.js';
 import { CHARMS, DEFAULT_BASE_RULES, SCROLL_YAKU } from '../src/items.js';
+import type { KyokuResult } from '../src/kyoku.js';
+import { YAKUMAN_MARK, makeMission, type Mission } from '../src/mission.js';
 import {
   CHARACTERS,
   DEFAULT_START,
   EMPTY_PROGRESS,
-  YAKUMAN_MARK,
   clampChoice,
   characterUnlocked,
   parseProgress,
@@ -19,66 +20,77 @@ import {
   type Progress,
   type RunStart,
 } from '../src/progression.js';
-import { buyBlocker, createRun, ownedCharms, reroll, type Offer } from '../src/run.js';
+import { buyBlocker, createRun, moneyForWin, ownedCharms, reroll, runSummary, type Offer, type RunState } from '../src/run.js';
 import { botAction } from '../src/sim.js';
 
 /** AI に 1 ランを遊ばせる（ショップでは何も買わない）。開いたショップの品をすべて集める */
 function playRun(seed: number, start: RunStart): { final: GameState; offers: Offer[][] } {
   let g = createGame(seed, { start });
-  const offers: Offer[][] = [];
+  const offers: Offer[][] = [g.run.shop!];
   while (!isFinished(g)) {
     if (g.kyoku && !g.kyoku.result) g = apply(g, botAction(g.kyoku, { target: '和了形', riichi: true }));
-    else if (g.kyoku) {
-      g = apply(g, { type: 'settle', renchan: false });
-      if (g.run.shop) offers.push(g.run.shop);
-    } else g = apply(g, { type: 'leave' });
+    else if (g.kyoku) g = apply(g, { type: 'settle', renchan: false });
+    else g = apply(g, { type: 'leave' });
+    if (g.run.shop && g.run.shop !== offers[offers.length - 1]) offers.push(g.run.shop);
   }
   return { final: g, offers };
 }
 
-/** 解禁の状態。雀士の一覧を渡さなければ、前の形と同じく条件を満たした雀士を解禁済みにする */
+/** 最初のショップを出て東 1 局を始める */
+const firstKyoku = (seed: number, start: RunStart): GameState => apply(createGame(seed, { start }), { type: 'leave' });
+
+/** 解禁の状態。雀士の一覧を渡さなければ、前の形と同じく 4 場の形の条件を満たした雀士を解禁済みにする */
 const progress = (p: Partial<Progress>): Progress => withCharacters({ yakuWon: [], bestWaves: 0, danCleared: -1, ...p });
+
+/**
+ * 終わったラン（解禁のテスト用）。お題は mission の 1 つで、cleared なら果たしている（和了 1 回のお題を、1 回和了った）。
+ * 解禁の記録には、果たしたお題の倍率が入る
+ */
+const ended = (mission: Mission, cleared: boolean, yakuWon: string[] = [], dan = 0): RunState => {
+  const run = createRun(1, { start: { ...DEFAULT_START, dan } });
+  const wins = makeMission('wins', 1, mission.times);
+  return { ...run, phase: cleared ? 'cleared' : 'over', missions: [wins], yakuWon, round: { ...run.round, wins: cleared ? 9 : 0 } };
+};
 
 describe('雀士と段位のルール', () => {
   it('標準の雀士・初段は今までの既定と同じ', () => {
     const r = runRulesFor(DEFAULT_START);
     expect(r.base).toEqual(DEFAULT_BASE_RULES);
-    expect(r.targets).toEqual([1000, 2000, 4000, 8000]);
-    expect(r.startMoney).toBe(4);
-    expect(r.shopSize).toBe(3);
+    expect(r.missionSlots).toEqual([
+      { times: 1, tier: 1 },
+      { times: 1.5, tier: 2 },
+      { times: 2, tier: 3 },
+    ]);
+    expect(r).toMatchObject({ startMoney: 4, shopSize: 3, winMoneyDelta: 0, orasuWin: null, gacha: true });
   });
 
   it('段位が上がると縛りが重なる', () => {
     const at = (dan: number) => runRulesFor({ ...DEFAULT_START, dan });
-    expect(at(1).targets).toEqual([1500, 3000, 6000, 12000]);
-    expect(at(1).clearBonus).toBe(3);
-    expect(at(2).clearBonus).toBe(2);
+    const tiers = (dan: number) => at(dan).missionSlots.map((s) => s.tier);
+    expect(tiers(1)).toEqual([2, 3, 4]);
+    expect(at(1).winMoneyDelta).toBe(0);
+    expect(at(2).winMoneyDelta).toBe(-1);
     expect(at(3).base.turns).toBe(DEFAULT_BASE_RULES.turns - 1);
-    expect(at(4).targets).toEqual([2000, 4000, 8000, 16000]);
-    expect(at(5)).toMatchObject({ shopSize: 2, clearBonus: 2, startMoney: 4, base: { turns: DEFAULT_BASE_RULES.turns - 1 } });
-    // 始めの祝儀が 0 の雀士にも、三段の縛りは効く
-    expect(runRulesFor({ character: 'oya', dan: 2 }).clearBonus).toBe(2);
+    expect(tiers(4)).toEqual([3, 4, 5]);
+    expect(at(4).orasuWin).toBe(0);
+    expect(at(5)).toMatchObject({ shopSize: 2, winMoneyDelta: -1, startMoney: 4, gacha: false, orasuWin: 2000, base: { turns: DEFAULT_BASE_RULES.turns - 1 } });
+    expect(at(5).missionSlots).toEqual([
+      { times: 1.5, tier: 4 },
+      { times: 2, tier: 5 },
+    ]);
   });
 
-  it('場を突破したときの祝儀は段位で減る', () => {
-    /** 東場を突破した直後の祝儀の内訳（突破できなかったら null） */
-    const firstBonus = (seed: number, dan: number) => {
-      let g = createGame(seed, { start: { ...DEFAULT_START, dan } });
-      while (!isFinished(g)) {
-        if (g.run.lastWaveBonus) return g.run.lastWaveBonus;
-        if (g.kyoku && !g.kyoku.result) g = apply(g, botAction(g.kyoku, { target: '和了形', riichi: true }));
-        else if (g.kyoku) g = apply(g, { type: 'settle', renchan: true });
-        else g = apply(g, { type: 'leave' });
-      }
-      return null;
-    };
-    const bonusAt = (dan: number) => [1, 2, 3, 4, 5].map((seed) => firstBonus(seed, dan)).find(Boolean);
-    expect(bonusAt(0)?.clear).toBe(3);
-    expect(bonusAt(2)?.clear).toBe(2);
+  it('三段からは和了の祝儀が 1 少ない（0 より下にはしない。金牌のぶんは減らない）', () => {
+    const win = (han: number, gold: number) =>
+      ({ type: 'win', gold, win: { evaluation: { yakuman: 0, han, yaku: [], noYaku: false } } }) as unknown as Extract<KyokuResult, { type: 'win' }>;
+    const at = (dan: number) => createRun(1, { start: { ...DEFAULT_START, dan } });
+    expect(moneyForWin(at(0), win(4, 0))).toBe(4);
+    expect(moneyForWin(at(2), win(4, 0))).toBe(3);
+    expect(moneyForWin(at(2), win(0, 1))).toBe(1 + 2);
   });
 
   it('雀士で始めの条件が変わる', () => {
-    const g = createGame(1, { start: { ...DEFAULT_START, character: 'menzen' } });
+    const g = firstKyoku(1, { ...DEFAULT_START, character: 'menzen' });
     expect(g.run.base.holdSlots).toBe(0);
     expect(g.run.base.next).toBe(4);
     // かめは巡数が 3 多い。段位で巡数が減っても上乗せになる（四段は 11 巡なので 14 巡）
@@ -97,7 +109,6 @@ describe('雀士と段位のルール', () => {
 
   it('固有のお守りは枠に数えず、売れず、ショップにも並ばない', () => {
     let g = createGame(2, { start: { ...DEFAULT_START, character: 'oya' } });
-    while (g.kyoku) g = apply(g, g.kyoku.result ? { type: 'settle' } : botAction(g.kyoku, { target: '和了形' }));
     // 買ったお守りがなければ売れない（固有の親父の背中は売る対象にならない）
     expect(() => apply(g, { type: 'sell', index: 0 })).toThrow();
     // 枠は買ったお守りだけで数える: 5 つ買っていても固有のぶんで満杯にならない
@@ -147,17 +158,24 @@ describe('役の解禁', () => {
 });
 
 describe('解禁の状態', () => {
-  it('ランのあとに和了った役・突破した場・クリアした段位を足す', () => {
+  it('ランのあとに和了った役・クリアしたお題の倍率・クリアした段位を足す', () => {
     const { final } = playRun(1, DEFAULT_START);
     const p = progressAfter(progress({ yakuWon: ['プチ国士'] }), final.run);
     expect(p.yakuWon).toContain('プチ国士');
     for (const y of final.run.yakuWon) expect(p.yakuWon).toContain(y);
-    expect(p.bestWaves).toBe(final.run.phase === 'cleared' ? 4 : final.run.wave);
-    // 記録は下がらない
-    expect(progressAfter(progress({ bestWaves: 4, danCleared: 3 }), final.run)).toMatchObject({ bestWaves: 4, danCleared: 3 });
+    const cleared = final.run.phase === 'cleared';
+    const metTimes = runSummary(final.run).missions.filter((m) => m.met).map((m) => m.times);
+    expect(p.bestTimes).toBe(cleared ? Math.max(...metTimes) : 0);
+    expect(p.danCleared).toBe(cleared ? 0 : -1);
+    const m = makeMission('wins', 3, 2);
+    expect(progressAfter(EMPTY_PROGRESS, ended(m, true, [], 2))).toMatchObject({ bestTimes: 2, danCleared: 2 });
+    expect(progressAfter(EMPTY_PROGRESS, ended(m, false, [], 2))).toMatchObject({ bestTimes: 0, danCleared: -1 });
+    // 記録は下がらない。4 場の形の記録（bestWaves）は東風戦では増えない
+    const old = { ...progress({ bestWaves: 4, danCleared: 3 }), bestTimes: 1.5 };
+    expect(progressAfter(old, ended(makeMission('wins', 1, 1), true))).toMatchObject({ bestTimes: 1.5, bestWaves: 4, danCleared: 3 });
   });
 
-  it('全場クリアした段位の次の段位まで選べる', () => {
+  it('クリアした段位の次の段位まで選べる', () => {
     expect(maxDan(EMPTY_PROGRESS)).toBe(0);
     expect(maxDan(progress({ danCleared: 0 }))).toBe(1);
     expect(maxDan(progress({ danCleared: 5 }))).toBe(5);
@@ -175,33 +193,37 @@ describe('解禁の状態', () => {
   });
 
   it('雀士の解禁の条件', () => {
-    const met = (p: Progress) => CHARACTERS.filter((c) => c.condition(p)).map((c) => c.id);
-    expect(met(EMPTY_PROGRESS)).toEqual(['standard']);
-    // ねこは全場クリアし、役満でも和了ったときだけ
-    expect(met(progress({ bestWaves: 2, yakuWon: ['門前', YAKUMAN_MARK] }))).toEqual(['standard', 'speed', 'menzen', 'oya']);
-    expect(met(progress({ bestWaves: 4, danCleared: 0, yakuWon: ['門前', YAKUMAN_MARK] }))).toEqual([
-      'standard',
-      'speed',
-      'menzen',
-      'oya',
-      'yakuman',
-    ]);
+    const met = (p: Partial<Progress>) => CHARACTERS.filter((c) => c.condition({ ...EMPTY_PROGRESS, ...p })).map((c) => c.id);
+    expect(met({})).toEqual(['standard']);
+    expect(met({ bestTimes: 1 })).toEqual(['standard', 'speed']);
+    expect(met({ bestTimes: 1.5, yakuWon: ['門前'] })).toEqual(['standard', 'speed', 'menzen', 'oya']);
+    // ねこは ×2 のお題でクリアし、役満でも和了ったときだけ
+    expect(met({ bestTimes: 1.5, yakuWon: [YAKUMAN_MARK] })).toEqual(['standard', 'speed', 'oya']);
+    expect(met({ bestTimes: 2, yakuWon: ['門前', YAKUMAN_MARK] })).toEqual(['standard', 'speed', 'menzen', 'oya', 'yakuman']);
+    // 4 場の形の記録は、東風戦の条件には数えない
+    expect(met({ bestWaves: 4, danCleared: 0 })).toEqual(['standard']);
   });
 
   it('雀士は 1 回のランで 1 人まで、一覧の順に解禁し、残りは次のランを終えたときに解禁する', () => {
-    // 南場まで突破し、門前でも和了ったラン（うさぎ・かめ・ぞうの条件を満たす）
-    const ended = (wave: number, yakuWon: string[]) => ({ ...createRun(1), phase: 'over' as const, wave, yakuWon });
-    let p = progressAfter(EMPTY_PROGRESS, ended(2, ['門前']));
+    // ×1.5 のお題でクリアし、門前でも和了ったラン（うさぎ・かめ・ぞうの条件を満たす）
+    let p = progressAfter(EMPTY_PROGRESS, ended(makeMission('wins', 2, 1.5), true, ['門前']));
     expect(p.characters).toEqual(['speed']);
     expect(characterUnlocked(p, 'menzen')).toBe(false);
-    // 次のランは東場で負けても、満たした条件は残っているので 1 人ずつ解禁される
+    // 次のランはクリアできなくても、満たした条件は残っているので 1 人ずつ解禁される
     // （一覧の並びは ID の順）
-    p = progressAfter(p, ended(0, []));
+    const lost = ended(makeMission('wins', 1, 1), false);
+    p = progressAfter(p, lost);
     expect(p.characters).toEqual(['menzen', 'speed']);
-    p = progressAfter(p, ended(0, []));
+    p = progressAfter(p, lost);
     expect(p.characters).toEqual(['menzen', 'oya', 'speed']);
     // 条件を満たした雀士がもういなければ増えない
-    expect(progressAfter(p, ended(0, [])).characters).toEqual(['menzen', 'oya', 'speed']);
+    expect(progressAfter(p, lost).characters).toEqual(['menzen', 'oya', 'speed']);
+  });
+
+  it('4 場の形の条件を満たして解禁を待っていた雀士も、次のランを終えると解禁する', () => {
+    // 南場まで突破していたが、1 ランで 1 人の規則でぞうの解禁を待っていた記録
+    const old: Progress = { ...EMPTY_PROGRESS, bestWaves: 2, characters: ['speed'] };
+    expect(progressAfter(old, ended(makeMission('wins', 1, 1), false)).characters).toEqual(['oya', 'speed']);
   });
 
   it('新しく解禁されたものを並べる', () => {
@@ -221,14 +243,19 @@ describe('解禁の状態', () => {
     expect(clampChoice(p, { character: 'oya', dan: 4 })).toEqual({ character: 'standard', dan: 1 });
   });
 
-  it('解禁の状態の形を確かめる。雀士の一覧がない前の形は、条件を満たした雀士を解禁済みにする', () => {
+  it('解禁の状態の形を確かめる。前の形は、4 場の形の条件を満たした雀士を解禁済みにし、お題の記録を 0 にする', () => {
     expect(parseProgress(EMPTY_PROGRESS)).toEqual(EMPTY_PROGRESS);
     expect(parseProgress({ yakuWon: [1], bestWaves: 0, danCleared: -1 })).toBeNull();
     expect(parseProgress({ yakuWon: [], bestWaves: 0.5, danCleared: -1 })).toBeNull();
+    expect(parseProgress({ ...EMPTY_PROGRESS, bestTimes: 'x' })).toBeNull();
+    // 0 から最大の倍率までに収まらない値は受け付けない
+    expect(parseProgress({ ...EMPTY_PROGRESS, bestTimes: 999 })).toBeNull();
+    expect(parseProgress({ ...EMPTY_PROGRESS, bestTimes: -1 })).toBeNull();
     expect(parseProgress({ ...EMPTY_PROGRESS, characters: ['nobody'] })).toBeNull();
     expect(parseProgress(null)).toBeNull();
-    expect(parseProgress({ yakuWon: [], bestWaves: 2, danCleared: -1 })?.characters).toEqual(['oya', 'speed']);
+    expect(parseProgress({ yakuWon: [], bestWaves: 2, danCleared: -1 })).toMatchObject({ characters: ['oya', 'speed'], bestTimes: 0 });
     expect(parseProgress({ yakuWon: [], bestWaves: 2, danCleared: -1, characters: ['speed'] })?.characters).toEqual(['speed']);
+    expect(parseProgress({ ...EMPTY_PROGRESS, bestTimes: 1.5 })?.bestTimes).toBe(1.5);
   });
 
   it('始めの条件の比較は役の並びによらない', () => {
@@ -251,7 +278,12 @@ describe('始めの条件と再生', () => {
     const log = newLog(9, start);
     let g = createGame(9, { start });
     for (let i = 0; i < 40 && !isFinished(g); i++) {
-      const a = g.kyoku && !g.kyoku.result ? botAction(g.kyoku, { target: '和了形', riichi: true }) : g.kyoku ? { type: 'settle' as const } : { type: 'leave' as const };
+      const a =
+        g.kyoku && !g.kyoku.result
+            ? botAction(g.kyoku, { target: '和了形', riichi: true })
+            : g.kyoku
+              ? { type: 'settle' as const }
+              : { type: 'leave' as const };
       g = apply(g, a);
       log.actions.push(a);
     }

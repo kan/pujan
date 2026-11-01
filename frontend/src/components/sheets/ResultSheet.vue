@@ -1,32 +1,24 @@
 <script setup lang="ts">
-/** 場の結果（docs/SPEC.md §2.3）。突破（祝儀の内訳）・ラン終了・全場クリア。局ごとの記録を並べる */
+/** ラン終了（docs/SPEC.md §2.3）。お題ごとに果たしたか、局ごとの記録、合計点・倍率・記録点、解禁、ランキングへの記録 */
 import { computed } from 'vue';
+import { anyMissionDone, runSummary } from '@pujan/engine';
 import { useAccountStore } from '@/stores/account';
 import { useGameStore } from '@/stores/game';
-import { OFFER_KIND_LABEL } from '@pujan/engine';
-import { WIND_NAMES, orasuRuleText, receivedText, roundLabel, summaryText, unlockLines } from '@/lib/labels';
+import { missionText, orasuRuleText, roundLabel, summaryText, timesLabel, unlockLines } from '@/lib/labels';
 import SheetLayer from '../SheetLayer.vue';
 
-const emit = defineEmits<{ close: []; openRanking: []; openFeedback: []; openMenu: []; newRun: [] }>();
+const emit = defineEmits<{ openRanking: []; openFeedback: []; openMenu: []; newRun: [] }>();
 const store = useGameStore();
 const account = useAccountStore();
 const run = computed(() => store.run);
-const wind = computed(() => WIND_NAMES[run.value.wave]);
 const round = computed(() => run.value.round);
-const title = computed(() =>
-  run.value.phase === 'over' ? 'ラン終了' : run.value.phase === 'cleared' ? '全場クリア' : `${wind.value}場 突破`,
-);
-// 突破したとき（全場クリアを含む）の祝儀の内訳。ラン終了では出さない
-const bonus = computed(() => (run.value.phase === 'over' ? null : run.value.lastWaveBonus));
-/** 目標点には届いたが、オーラスの和了の条件（段位の縛り）で突破できなかった */
-const orasuFailed = computed(() => run.value.phase === 'over' && round.value.score >= round.value.target);
-/** オーラスの和了でもらった品 */
-const orasuPrize = computed(() => {
-  const p = run.value.orasuPrize;
-  return p ? { ...p, ...receivedText(p, run.value.yakuLevels) } : null;
-});
+const summary = computed(() => runSummary(run.value));
+const title = computed(() => (summary.value.cleared ? 'クリア' : 'ラン終了'));
+/** お題は果たしたが、オーラスの和了の条件（段位の縛り）でクリアにならなかった */
+const orasuFailed = computed(() => !summary.value.cleared && anyMissionDone(run.value));
+const metCount = computed(() => summary.value.missions.filter((m) => m.met).length);
 /** ランが終わって新しく解禁されたもの */
-const unlocked = computed(() => (store.unlocks && run.value.phase !== 'shop' ? unlockLines(store.unlocks) : []));
+const unlocked = computed(() => (store.unlocks ? unlockLines(store.unlocks) : []));
 
 /** 端末だけのランになった理由ごとの説明 */
 const LOCAL_REASON_TEXT: Record<typeof account.localReason, string> = {
@@ -35,10 +27,10 @@ const LOCAL_REASON_TEXT: Record<typeof account.localReason, string> = {
   offline: 'このランは、始めたときにサーバーにつながらなかったので、ランキングには載りません。',
 };
 
-/** ランが終わったときの、ランキングへの記録の様子 */
+/** ランキングへの記録の様子 */
 const submissionText = computed(() => {
   const s = account.submission;
-  if (!s || run.value.phase === 'shop') return '';
+  if (!s) return '';
   switch (s.status) {
     case 'local':
       return LOCAL_REASON_TEXT[account.localReason];
@@ -61,29 +53,28 @@ const submissionText = computed(() => {
 
 <template>
   <SheetLayer :label="title">
-    <h2>{{ title }}<span class="pts">{{ round.score.toLocaleString() }}点</span></h2>
-    <p v-if="orasuFailed" class="note">
-      {{ wind }}場の目標点には届きましたが、{{ orasuRuleText(run) }}。
-    </p>
-    <p v-else-if="run.phase === 'over'" class="note">
-      {{ wind }}場の目標 {{ round.target.toLocaleString() }}点に届きませんでした。
-    </p>
-    <p v-else-if="run.phase === 'cleared'" class="note">東南西北の4場をすべて突破しました。</p>
+    <h2>{{ title }}<span class="pts">{{ summary.recordScore.toLocaleString() }}点</span></h2>
+    <p v-if="orasuFailed" class="note">お題は果たしましたが、{{ orasuRuleText(run) }}。</p>
+    <p v-else-if="summary.cleared" class="note">お題を{{ summary.missions.length }}つのうち{{ metCount }}つ果たしました。</p>
+    <p v-else class="note">お題を1つも果たせませんでした。</p>
+    <div class="yakulist">
+      <template v-for="(m, i) in summary.missions" :key="`m${i}`">
+        <span>{{ missionText(m) }}</span><span>{{ m.met ? '済' : '未' }}</span>
+      </template>
+    </div>
     <div class="yakulist">
       <template v-for="(e, i) in round.log" :key="i">
-        <span>{{ roundLabel(run.wave, e.kyoku, e.honba, false) }}　{{ e.label }}{{ e.dealer ? '（親）' : '' }}</span>
+        <span>{{ roundLabel(e.kyoku, e.honba, false) }}　{{ e.label }}{{ e.dealer ? '（親）' : '' }}</span>
         <span>{{ e.points.toLocaleString() }}</span>
       </template>
     </div>
-    <div v-if="bonus" class="yakulist">
-      <span>突破の祝儀</span><span>+{{ bonus.clear }}</span>
-      <span>利子（5ごとに1、最大5）</span><span>+{{ bonus.interest }}</span>
-      <span>目標超過</span><span>+{{ bonus.over }}</span>
+    <div class="yakulist">
+      <span>4局の合計</span><span>{{ summary.totalScore.toLocaleString() }}</span>
+      <template v-if="summary.cleared">
+        <span>倍率（果たしたお題の合計）</span><span>{{ timesLabel(summary.times) }}</span>
+      </template>
+      <span>記録点</span><span>{{ summary.recordScore.toLocaleString() }}</span>
     </div>
-    <p v-if="orasuPrize" class="note">
-      オーラスの和了の褒美に、{{ OFFER_KIND_LABEL[orasuPrize.kind] }}「{{ orasuPrize.name }}」をもらいました（{{ orasuPrize.description }}）。
-    </p>
-    <p v-if="bonus?.tickets" class="note">福引き券を{{ bonus.tickets }}枚もらいました（ショップの福引きを祝儀なしで回せます）。</p>
     <section v-if="unlocked.length" class="unlocks" aria-label="解禁">
       <h3>解禁</h3>
       <ul>
@@ -91,8 +82,7 @@ const submissionText = computed(() => {
       </ul>
     </section>
     <p v-if="submissionText" class="note" role="status">{{ submissionText }}</p>
-    <button v-if="run.phase === 'shop'" class="btn win" type="button" @click="emit('close')">ショップへ</button>
-    <div v-else class="actions">
+    <div class="actions">
       <button class="btn" type="button" @click="emit('openRanking')">ランキング</button>
       <button class="btn" type="button" @click="emit('openFeedback')">感想</button>
       <!-- この画面はヘッダーを覆うので、メニューへはここから開く（閉じるとこの画面に戻る） -->

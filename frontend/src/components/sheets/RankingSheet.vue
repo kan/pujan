@@ -1,6 +1,6 @@
 <script setup lang="ts">
 /**
- * 週ごとのランキング（docs/SPEC.md §5.4）。突破した場の数 → 4 場の合計点の順。
+ * 週ごとのランキング（docs/SPEC.md §5.4）。段位 → クリアしたか → 記録点の順。
  * 名前と公開への同意がないと載らないので、ここで名前を登録できる（kan/game docs/ID_DESIGN.md「名前」）。
  */
 import { computed, onMounted, ref } from 'vue';
@@ -52,7 +52,7 @@ const meListed = computed(() => !!ranking.value?.entries.some((e) => e.isMe));
       <button class="btn" type="button" :disabled="loading" @click="go(-1)">← 前の週</button>
       <button class="btn" type="button" :disabled="loading || isThisWeek" @click="go(1)">次の週 →</button>
     </div>
-    <p class="note">{{ weekLabel }}（月曜に入れ替わります）。段位、突破した場の数、合計点の順です。</p>
+    <p class="note">{{ weekLabel }}（月曜に入れ替わります）。段位、クリアしたか、記録点の順です。</p>
 
     <p v-if="loading" class="note">読み込んでいます…</p>
     <p v-else-if="!ranking" class="note warn">サーバーにつながりません。</p>

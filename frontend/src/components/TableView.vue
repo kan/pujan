@@ -17,7 +17,7 @@ import {
   type ConsumableId,
 } from '@pujan/engine';
 import { useGameStore } from '@/stores/game';
-import { WIND_NAMES, bossDef, consumableDef, modifiedKinds, roundLabel } from '@/lib/labels';
+import { bossDef, consumableDef, missionLabel, missionProgress, modifiedKinds, roundLabel, timesLabel } from '@/lib/labels';
 import HandArea from './HandArea.vue';
 import MjTile from './MjTile.vue';
 
@@ -28,8 +28,9 @@ const riverOpen = ref(false);
 
 const run = computed(() => store.run);
 const k = computed(() => store.shownKyoku);
-const wind = computed(() => WIND_NAMES[run.value.wave]);
 const round = computed(() => run.value.round);
+/** お題ごとの進み具合 */
+const missions = computed(() => run.value.missions.map((m) => ({ m, ...missionProgress(run.value, m) })));
 /** 牌山を改造した（持ち物のボタンに印を出す） */
 const modded = computed(() => modifiedKinds(run.value).size > 0);
 /** 雀士の固有のお守りの数（枠の数とは別に、設備の数と同じ小さな印で出す） */
@@ -75,7 +76,6 @@ const boss = computed(() => {
   return id ? bossDef(id) : null;
 });
 const jokerDora = computed(() => !!k.value && k.value.setup.mods.doraMode !== 'normal');
-const progress = computed(() => Math.max(0, Math.min(100, (round.value.score / round.value.target) * 100)));
 
 const sel = computed(() => store.selection);
 const usedIds = computed(() => store.winPreview?.tileIds ?? new Set<number>());
@@ -113,26 +113,31 @@ const hint = computed(() => {
           class="seg"
           :class="{ cur: i - 1 === round.kyoku, done: i - 1 < round.kyoku }"
         >
-          {{ wind }}{{ i }}
+          東{{ i }}
           <span v-if="i - 1 === round.dealer" class="oya">親</span>
           <span v-if="i === 4" class="boss">ボス</span>
         </span>
       </div>
       <div class="nums">
-        <span class="rd">{{ roundLabel(run.wave, round.kyoku, round.honba, isDealerKyoku(run)) }}</span>
+        <span class="rd">{{ roundLabel(round.kyoku, round.honba, isDealerKyoku(run)) }}</span>
         <span v-if="k" class="tn" :class="{ last: turnsLeft === 0, low: turnsLeft > 0 && turnsLeft <= 3 }">
           <template v-if="turnsLeft === 0"><b>最終巡</b></template>
           <template v-else>巡 <b>{{ k.turn }}</b>/{{ turnLimit(k) }}・残り{{ turnsLeft }}</template>
         </span>
-        <span class="sc">{{ round.score.toLocaleString() }}<small> / {{ round.target.toLocaleString() }}</small></span>
+        <span class="sc">{{ round.score.toLocaleString() }}<small>点</small></span>
       </div>
-      <div class="bar"><i :style="{ width: `${progress}%` }" /></div>
+      <div v-for="(x, i) in missions" :key="i" class="mission" :class="{ done: x.done }">
+        <span class="mt">{{ timesLabel(x.m.times) }}</span>
+        <span class="ml">{{ missionLabel(x.m) }}</span>
+        <b class="mp">{{ x.text }}</b>
+        <span class="bar"><i :style="{ width: `${x.ratio * 100}%` }" /></span>
+      </div>
     </section>
 
     <div v-if="k" class="info">
       <span v-if="k.riichi" class="badge">リーチ</span>
       <span v-if="boss" class="c boss" :title="boss.description">ボス <b>{{ boss.name }}</b></span>
-      <span v-if="orasuRule" class="c boss" title="段位の縛り: 満たさないと場を突破できない">
+      <span v-if="orasuRule" class="c boss" title="段位の縛り: 満たさないとクリアにならない">
         {{ orasuRule.label }} <b>{{ orasuRule.done ? '済' : '要' }}</b>
       </span>
       <span v-for="(ind, i) in k.indicators" :key="ind.id" class="c">

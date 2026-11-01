@@ -13,7 +13,9 @@ import {
   replayWithStats,
   runSummary,
   sameStart,
+  summaryOf,
   weekOf,
+  type MissionResult,
   type Progress,
   type RunLog,
   type RunStart,
@@ -85,7 +87,9 @@ interface RunRow extends ProgressRow {
   start: string;
   started_at: number;
   finished_at: number | null;
-  waves_cleared: number | null;
+  /** 終わったランの成績（お題は engine の MissionResult の配列の JSON） */
+  missions: string | null;
+  cleared: number | null;
   total_score: number | null;
   /** その ID のいちばん新しいランの ID */
   latest_id: string;
@@ -103,10 +107,11 @@ export async function finishRun(
 ): Promise<FinishResult> {
   const row = await db
     .prepare(
-      `SELECT r.account_id, r.seed, r.engine_version, r.start, r.started_at, r.finished_at, r.waves_cleared, r.total_score,
+      `SELECT r.account_id, r.seed, r.engine_version, r.start, r.started_at, r.finished_at,
+         r.missions, r.cleared, r.total_score,
          (SELECT id FROM runs WHERE account_id = r.account_id ORDER BY started_at DESC, id DESC LIMIT 1) AS latest_id,
          EXISTS (SELECT 1 FROM weekly_best WHERE account_id = r.account_id AND run_id = r.id) AS is_best,
-         p.yaku_won, p.best_waves, p.dan_cleared, p.characters
+         p.yaku_won, p.best_times, p.best_waves, p.dan_cleared, p.characters
        FROM runs r LEFT JOIN progress p ON p.account_id = r.account_id WHERE r.id = ?`,
     )
     .bind(runId)
@@ -115,7 +120,9 @@ export async function finishRun(
 
   const before = progressOfRow(row);
   if (row.finished_at !== null) {
-    const summary = { wavesCleared: row.waves_cleared!, totalScore: row.total_score! };
+    // 東風戦の版で始めたランだけがここに来る（4 場の形のランは版が違うので、画面が送ってこない）
+    if (row.missions === null) return { status: 'version_mismatch' };
+    const summary = summaryOf(JSON.parse(row.missions) as MissionResult[], !!row.cleared, row.total_score!);
     return { status: 'recorded', summary, week: weekOf(row.started_at), best: !!row.is_best, duplicate: true, progress: before };
   }
   if (row.latest_id !== runId) return { status: 'superseded' };
@@ -145,25 +152,71 @@ export async function finishRun(
     // finished_at IS NULL: 同時に届いた 2 回目の送信は成績を書き換えない
     db
       .prepare(
-        `UPDATE runs SET finished_at = ?, waves_cleared = ?, total_score = ?, log = ?, stats = ?
+        `UPDATE runs SET finished_at = ?, missions = ?, cleared = ?, total_score = ?, record_score = ?, log = ?, stats = ?
          WHERE id = ? AND finished_at IS NULL`,
       )
       // 操作ログと数えた結果はプレイの集計に使う（SPEC フェーズ 4.5）
-      .bind(now, summary.wavesCleared, summary.totalScore, JSON.stringify(log), JSON.stringify(stats), runId),
-    // 週の最高記録より良ければ置き換える（ランキングと同じ規則）
+      .bind(
+        now,
+        JSON.stringify(summary.missions),
+        Number(summary.cleared),
+        summary.totalScore,
+        summary.recordScore,
+        JSON.stringify(log),
+        JSON.stringify(stats),
+        runId,
+      ),
+    // 週の最高記録より良ければ置き換える（ランキングと同じ規則）。waves_cleared は 4 場の形の列で、0 を入れておく
     db
       .prepare(
-        `INSERT INTO weekly_best (week, account_id, run_id, dan, character, waves_cleared, total_score, finished_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        `INSERT INTO weekly_best (week, account_id, run_id, dan, character, missions, cleared, total_score, record_score, waves_cleared, finished_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?)
          ON CONFLICT (week, account_id) DO UPDATE SET
-           run_id = excluded.run_id, dan = excluded.dan, character = excluded.character,
-           waves_cleared = excluded.waves_cleared, total_score = excluded.total_score, finished_at = excluded.finished_at
+           run_id = excluded.run_id, dan = excluded.dan, character = excluded.character, missions = excluded.missions,
+           cleared = excluded.cleared, total_score = excluded.total_score, record_score = excluded.record_score,
+           waves_cleared = excluded.waves_cleared, finished_at = excluded.finished_at
          WHERE ${betterThan('excluded', 'weekly_best')}
          RETURNING run_id`,
       )
-      .bind(week, accountId, runId, log.start.dan, log.start.character, summary.wavesCleared, summary.totalScore, now),
+      .bind(
+        week,
+        accountId,
+        runId,
+        log.start.dan,
+        log.start.character,
+        JSON.stringify(summary.missions),
+        Number(summary.cleared),
+        summary.totalScore,
+        summary.recordScore,
+        now,
+      ),
     // 解禁は減らないので、同時の送信があっても和を取って書く
     upsertProgress(db, accountId, progress, now),
   ]);
   return { status: 'recorded', summary, week, best: best.results.length > 0, duplicate: false, progress };
+}
+
+/**
+ * 局を終えた途中経過を残す（docs/SPEC.md §5.3）。kyoku は精算した局の数（連荘の本場も 1 局に数える）。
+ * 再生では確かめず、その ID の終わっていないランの「最後に終えた局」を大きいほうに上書きするだけ
+ * （届く順が前後しても戻さない）。ランがない・ほかの ID のラン・終わったランなら false
+ */
+export async function recordProgress(
+  db: D1Database,
+  accountId: string,
+  runId: string,
+  kyoku: number,
+  now = Date.now(),
+): Promise<boolean> {
+  const result = await db
+    .prepare(
+      // 時刻は局の数が増えたときだけ進める（遅れて届いた前の局の途中経過で、止まった時刻をずらさない）
+      `UPDATE runs SET
+         last_kyoku_at = CASE WHEN ?1 > COALESCE(last_kyoku, 0) THEN ?2 ELSE last_kyoku_at END,
+         last_kyoku = MAX(COALESCE(last_kyoku, 0), ?1)
+       WHERE id = ?3 AND account_id = ?4 AND finished_at IS NULL`,
+    )
+    .bind(kyoku, now, runId, accountId)
+    .run();
+  return result.meta.changes > 0;
 }

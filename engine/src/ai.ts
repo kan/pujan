@@ -5,10 +5,10 @@
  *
  * - 局: 和了形（5 枚の組と、三対子の 6 枚の組）ごとに「残りのツモで揃う見込み × 揃ったときの点数」を足し合わせ、
  *   打牌・保留・和了るか・リーチ・消耗品・延長を、その見積もりの大きいほうに決める
- * - 点数は、場の目標点までの残りで重みを付けた「効用」で比べる（足りない分までは点数どおり、超えた分は小さく数える。
- *   場の最後の局では、目標に届くかどうかを大きく数える）
+ * - 点数は、お題の進み具合で重みを付けた「効用」で比べる（点数のお題では足りない分までを点数どおりに、回数のお題では
+ *   和了そのものに、役のお題ではその役を含む和了に上乗せする。オーラスでは、お題を果たせるかどうかを大きく数える）
  * - ショップ: アイテムの価値の目安（祝儀に換算）で、買う・売る・品替え・福引き・牌の改造の対象を決める
- * - 精算: 親の和了は連荘する。ただし場の最後の局で、流局の罰符で目標点を割る恐れがあるときはやめる
+ * - 精算: 親の和了は連荘する。ただしオーラスで、お題を果たしたあとに流局の罰符で点数のお題を割る恐れがあるときはやめる
  *
  * 見てよいのは、遊ぶ人に見えるもの（手元の牌・河・ドラ表示・ネクスト・山の残りの数）だけ。山の並びは読まない。
  * 乱数を使わないので、同じ状態からは必ず同じ手を選ぶ（サーバーの再生や画面の CPU からも使える）。
@@ -48,17 +48,20 @@ import {
   type KyokuState,
   type Zone,
 } from './kyoku.js';
+import { YAKUMAN_MARK, missionMet, wonYakuNames } from './mission.js';
 import { mix32, nextInt } from './rng.js';
 import {
-  KYOKU_PER_WAVE,
-  WAVE_COUNT,
+  KYOKU_COUNT,
   buyBlocker,
   canGacha,
   canModify,
   isDealerKyoku,
+  isOrasu,
   kyokuModifiers,
+  missionProgressOf,
   orasuNeed,
   ownedCharms,
+  upcomingKyoku,
   type Offer,
   type RunState,
 } from './run.js';
@@ -184,6 +187,8 @@ interface Prepared {
   level: Float64Array;
   /** 和了形でない形と、1翻縛りで和了れない形 */
   banned: Uint8Array;
+  /** 形ごとの役の名前（ボーナスの翻を含まない。役のお題の判定に使う） */
+  yaku: string[][];
 }
 
 const preparedCache = new WeakMap<object, Prepared>();
@@ -205,6 +210,7 @@ function prepare(s: KyokuState): Prepared {
     noYaku: j.noYaku,
     level: new Float64Array(n).fill(1),
     banned: new Uint8Array(n),
+    yaku: j.yaku,
   };
   for (let i = 0; i < n; i++) {
     if (j.yakuman[i] < 0 || (m.shibari && j.noYaku[i])) {
@@ -221,17 +227,29 @@ function prepare(s: KyokuState): Prepared {
   return p;
 }
 
-/* ---------- 効用（場の目標点で重みを付けた点数） ---------- */
+/* ---------- 効用（お題の進み具合で重みを付けた点数） ---------- */
 
 /** ランの状況。局だけを遊ばせるとき（対戦の CPU など）は渡さず、点数そのものを比べる */
 export interface AiSituation {
-  /** 場の目標点までの残り（0 以下なら届いている） */
-  need: number;
-  /** 場の目標点 */
-  target: number;
-  /** この局が場の最後の局（4 局目） */
+  /**
+   * 点数のお題で、まだ足りない点数（果たしていれば 0 以下。点数のお題がなければ null）。
+   * 点数のお題は流局の罰符などで割ることがあるので、果たしたかは局ごとに need で見る
+   */
+  need: number | null;
+  pointsTimes: number;
+  /** 回数のお題で、まだ要る和了の回数（回数のお題がないか、果たしていれば 0） */
+  winsNeed: number;
+  winsTimes: number;
+  /** 役のお題で、まだ和了っていない役（YAKUMAN_MARK は役満のどれか。役のお題がないか、果たしていれば null） */
+  yaku: string | null;
+  yakuTimes: number;
+  /** もう果たした回数・役のお題の倍率の合計（果たしたら減らない） */
+  metTimes: number;
+  /** 点数の目安（お題を果たしたときの重みと、祝儀の換算に使う。点数のお題ではその点数） */
+  scale: number;
+  /** この局がオーラス（東 4 局） */
   lastKyoku: boolean;
-  /** 突破にまだ要る、オーラスの和了の点数（段位の縛り。条件がないか、もう満たしていれば null） */
+  /** クリアにまだ要る、オーラスの和了の点数（段位の縛り。条件がないか、もう満たしていれば null） */
   orasuMin: number | null;
   /** 祝儀 1 の点数への換算（延長に祝儀を払うかの判断に使う） */
   moneyValue: number;
@@ -240,23 +258,44 @@ export interface AiSituation {
   composition?: Composition;
 }
 
-/** 目標点を超えた分の重み（祝儀の目標超過のボーナスとランキングの合計点に効くので、0 にはしない） */
+/** 点数のお題で、足りない分を超えた点数の重み（記録点に効くので、0 にはしない） */
 const OVER_WEIGHT = 0.3;
-/** 場の最後の局で目標に届いたときの重み（目標点の何倍に数えるか） */
+/** オーラスでお題を果たしたときの重み（点数の目安の何倍に数えるか） */
 const PASS_WEIGHT = 10;
+/** オーラスより前の局で、回数のお題の和了 1 回・役のお題の役を含む和了に上乗せする重み（点数の目安の何倍か） */
+const WIN_STEP_WEIGHT = 2;
+const YAKU_STEP_WEIGHT = 5;
+/** 回数・役のお題の点数の目安 */
+const DEFAULT_SCALE = 3000;
 /** 金牌 1 枚の点数への換算（祝儀 2 と福引き券） */
 const GOLD_POINTS = 150;
 
-/** 局の点数の増減 p の効用。win は和了（場の最後の局でも、親の和了なら連荘でまだ続けられる） */
-function utility(p: number, sit: AiSituation | undefined, dealer: boolean, win: boolean): number {
+/**
+ * 局の点数の増減 p の効用。win は和了、hit はその和了が役のお題の役を含むか（オーラスでも、親の和了なら連荘で
+ * まだ続けられるので、オーラスより前の局と同じに数える）
+ */
+function utility(p: number, sit: AiSituation | undefined, dealer: boolean, win: boolean, hit = false): number {
   if (!sit) return p;
+  // この結果のあとに果たしているお題の倍率の合計。点数のお題は、この局の増減を足しても届いているかで見る
+  // （果たしたあとも、マイナスの局で割りうる）
+  const times =
+    sit.metTimes +
+    (sit.need !== null && p >= sit.need ? sit.pointsTimes : 0) +
+    (win && sit.winsNeed === 1 ? sit.winsTimes : 0) +
+    (win && hit && sit.yaku !== null ? sit.yakuTimes : 0);
   if (sit.lastKyoku && !(win && dealer)) {
-    const pass = p >= sit.need && (sit.orasuMin === null || (win && p >= sit.orasuMin));
-    return (pass ? PASS_WEIGHT * sit.target : 0) + OVER_WEIGHT * p;
+    const pass = times > 0 && (sit.orasuMin === null || (win && p >= sit.orasuMin));
+    return pass ? times * (PASS_WEIGHT * sit.scale + p) : OVER_WEIGHT * p;
   }
-  if (sit.need <= 0) return OVER_WEIGHT * p;
-  return Math.min(p, sit.need) + OVER_WEIGHT * Math.max(0, p - sit.need);
+  let u = sit.need !== null && sit.need > 0 ? Math.min(p, sit.need) + OVER_WEIGHT * Math.max(0, p - sit.need) : p;
+  if (win && sit.winsNeed > 0) u += WIN_STEP_WEIGHT * sit.scale * sit.winsTimes;
+  if (win && hit && sit.yaku !== null) u += YAKU_STEP_WEIGHT * sit.scale * sit.yakuTimes;
+  return u;
 }
+
+/** 形の役（役満なら倍数が 1 以上）が、役のお題の役を含むか（YAKUMAN_MARK は役満のどれか） */
+const hitsYaku = (sit: AiSituation | undefined, names: readonly string[], yakuman: boolean): boolean =>
+  !!sit?.yaku && (sit.yaku === YAKUMAN_MARK ? yakuman : names.includes(sit.yaku));
 
 /* ---------- 見積もり ---------- */
 
@@ -561,8 +600,10 @@ function estimate(e: Estimator, k: Kept): number {
       }
     }
     const pts = finalPoints(s, p.yakuman[i], han, !!p.noYaku[i], p.level[i]) + gold * GOLD_POINTS;
+    // 門前はボーナスの翻なので形の役には入っていない（役満とは複合しない）
+    const hit = sit?.yaku === '門前' ? menzen && p.yakuman[i] === 0 : hitsYaku(sit, p.yaku[i], p.yakuman[i] > 0);
     sum += prob;
-    sumU += prob * utility(pts, sit, e.dealer, true);
+    sumU += prob * utility(pts, sit, e.dealer, true, hit);
     if (prob > maxP) maxP = prob;
   }
   const drawU = utility(drawDelta(s), sit, e.dealer, false);
@@ -697,14 +738,16 @@ function riichiValue(e: Estimator, c: Candidate): number | null {
   const fctx = finalizeContext(s);
   const next = visibleNext(s).slice(0, view.draws);
   const firstKnown = next.findIndex((t) => w.includes(t.kind));
-  const pointsFor = (kind: Kind, turns: number) => {
+  /** 待ちの牌 kind で和了ったときの効用 */
+  const valueFor = (kind: Kind, turns: number) => {
     const win = bestWin([...tiles, { id: -1, kind }], ctx);
-    if (!win) return 0;
+    if (!win) return utility(0, sit, e.dealer, false);
     const ev = addHan(win.evaluation, [yakuEntry('リーチ', m.riichiHan)]);
-    return finalizeScore(ev, { ...fctx, riichiTurns: turns }).points;
+    const points = finalizeScore(ev, { ...fctx, riichiTurns: turns }).points;
+    return utility(points, sit, e.dealer, true, winHits(sit, ev));
   };
   const drawU = utility(m.tenpaiFee - (m.riichiStickBack ? 0 : m.riichiCost), sit, e.dealer, false);
-  if (firstKnown >= 0) return utility(pointsFor(next[firstKnown].kind, firstKnown + 1), sit, e.dealer, true);
+  if (firstKnown >= 0) return valueFor(next[firstKnown].kind, firstKnown + 1);
   const draws = view.draws - next.length;
   const outs = w.reduce((a, k) => a + (isJoker(s, k) ? 0 : view.avail[k]), 0) + view.jokerAvail;
   if (!outs || draws <= 0) return drawU;
@@ -713,12 +756,16 @@ function riichiValue(e: Estimator, c: Candidate): number | null {
   let u = 0;
   for (const k of w) {
     const a = isJoker(s, k) ? 0 : view.avail[k];
-    if (a) u += (a / outs) * utility(pointsFor(k, turns), sit, e.dealer, true);
+    if (a) u += (a / outs) * valueFor(k, turns);
   }
   // 山の万能牌は、待ちのうちいちばん高い牌として数える
-  if (view.jokerAvail) u += (view.jokerAvail / outs) * Math.max(...w.map((k) => utility(pointsFor(k, turns), sit, e.dealer, true)));
+  if (view.jokerAvail) u += (view.jokerAvail / outs) * Math.max(...w.map((k) => valueFor(k, turns)));
   return (1 - pNone) * u + pNone * drawU;
 }
+
+/** 和了の役が、役のお題の役を含むか（精算で yakuWon に入る名前と同じもので見る） */
+const winHits = (sit: AiSituation | undefined, ev: { yaku: readonly { name: string }[]; yakuman: number }): boolean =>
+  !!sit?.yaku && wonYakuNames(ev).includes(sit.yaku);
 
 /** 今のツモで和了ったときの効用 */
 function winNowValue(s: KyokuState, sit: AiSituation | undefined): number {
@@ -726,7 +773,7 @@ function winNowValue(s: KyokuState, sit: AiSituation | undefined): number {
   const score = finalizeScore(w.evaluation, finalizeContext(s));
   const used = new Set(w.tileIds);
   const gold = allTiles(s).filter((t) => used.has(t.id) && t.gold).length;
-  return utility(score.points + gold * GOLD_POINTS, sit, s.setup.dealer, true);
+  return utility(score.points + gold * GOLD_POINTS, sit, s.setup.dealer, true, winHits(sit, w.evaluation));
 }
 
 /** 和了らずに続けるのは、見込みがこの倍率を超えるときだけ（見積もりは甘めに出るので、確かな和了を優先する） */
@@ -853,7 +900,8 @@ function riichiNow(s: KyokuState, sit: AiSituation | undefined, draws: number): 
     const win = a ? bestWin([...tiles, { id: -1, kind: k }], ctx) : null;
     if (!win) continue;
     const ev = addHan(win.evaluation, [yakuEntry('リーチ', m.riichiHan)]);
-    u += (a / outs) * utility(finalizeScore(ev, { ...fctx, riichiTurns: s.turn - s.riichi!.turn + 1 }).points, sit, s.setup.dealer, true);
+    const points = finalizeScore(ev, { ...fctx, riichiTurns: s.turn - s.riichi!.turn + 1 }).points;
+    u += (a / outs) * utility(points, sit, s.setup.dealer, true, winHits(sit, ev));
   }
   return (1 - pNone) * u + pNone * drawU;
 }
@@ -884,39 +932,62 @@ function freshHandValue(s: KyokuState, sit: AiSituation | undefined): number {
 
 /* ---------- ラン（精算・ショップ） ---------- */
 
-/** ランの状況（効用の重み付けに使う） */
+/** ランの状況（効用の重み付けに使う）。お題は種類が重ならないので、種類ごとに進み具合を持つ */
 export function situationOf(run: RunState): AiSituation {
   const r = run.round;
-  const need = orasuNeed(run);
+  const prog = missionProgressOf(run);
+  const orasu = orasuNeed(run);
+  const sit = { need: null as number | null, pointsTimes: 0, winsNeed: 0, winsTimes: 0, yaku: null as string | null, yakuTimes: 0, metTimes: 0 };
+  for (const m of run.missions) {
+    if (m.kind === 'points') {
+      sit.need = m.need - prog.points;
+      sit.pointsTimes = m.times;
+    } else if (missionMet(m, prog)) {
+      sit.metTimes += m.times;
+    } else if (m.kind === 'wins') {
+      sit.winsNeed = m.need - prog.wins;
+      sit.winsTimes = m.times;
+    } else {
+      sit.yaku = m.yaku;
+      sit.yakuTimes = m.times;
+    }
+  }
+  const points = run.missions.find((m) => m.kind === 'points');
+  const scale = points?.need ?? DEFAULT_SCALE;
   return {
-    need: r.target - r.score,
-    target: r.target,
-    lastKyoku: r.kyoku >= KYOKU_PER_WAVE - 1,
-    orasuMin: need !== null && r.orasuWin < need ? need : null,
-    // 祝儀 1 は、その場の目標点の 1/40 ほどの値打ちと見る（アイテムが場の点数を何割か押し上げる目安）
-    moneyValue: r.target / 40,
+    ...sit,
+    scale,
+    lastKyoku: isOrasu(run),
+    orasuMin: orasu !== null && r.orasuWin < orasu ? orasu : null,
+    // 祝儀 1 は、点数の目安の 1/40 ほどの値打ちと見る（アイテムが局の点数を何割か押し上げる目安）
+    moneyValue: scale / 40,
     money: run.money,
     composition: run.composition,
   };
 }
 
-/** 最後の局より前で連荘を続ける、次の局の巡数の下限（これより少なくなるならやめる。目安） */
+/** オーラスより前で連荘を続ける、次の局の巡数の下限（これより少なくなるならやめる。目安） */
 const RENCHAN_MIN_TURNS = 6;
 
 /**
- * 親の和了のあと連荘するか。連荘はもう 1 局遊べるので基本は続けるが、場の最後の局で目標に届いているのに、
- * 流局の罰符（とリーチ棒）で目標を割る恐れがあるときはやめる。オーラスの和了の条件（段位）をまだ満たして
- * いなければ、和了やめると負けるので続ける。最後の局より前は、本場で巡が減って和了りにくくなったらやめる
+ * 親の和了のあと連荘するか。連荘はもう 1 局遊べるので基本は続けるが、本場で巡が減って和了りにくくなったらやめる。
+ * オーラスでは、お題かオーラスの和了の条件（段位）をまだ満たしていなければ、和了やめると負けるので続ける。
+ * 点数のお題を果たしたあとは、流局の罰符（とリーチ棒）で割る恐れがあるならやめる。
+ * yaku はこの和了の役の名前（役満なら YAKUMAN_MARK も入れる。役のお題の判定に使う）
  */
-export function smartRenchan(run: RunState, points: number): boolean {
+export function smartRenchan(run: RunState, points: number, yaku: readonly string[] = []): boolean {
   const r = run.round;
-  if (r.kyoku < KYOKU_PER_WAVE - 1) {
-    return kyokuModifiers({ ...run, round: { ...r, honba: r.honba + 1 } }).turns >= RENCHAN_MIN_TURNS;
-  }
-  const need = orasuNeed(run);
-  if (need !== null && Math.max(r.orasuWin, points) < need) return true;
-  const after = r.score + points;
-  return after < r.target || after - notenPenalty(r.honba + 1) - 300 >= r.target;
+  const turnsOk = kyokuModifiers({ ...run, round: { ...r, honba: r.honba + 1 } }).turns >= RENCHAN_MIN_TURNS;
+  if (!isOrasu(run)) return turnsOk;
+  const orasu = orasuNeed(run);
+  if (orasu !== null && Math.max(r.orasuWin, points) < orasu) return true;
+  const after = { wins: r.wins + 1, points: r.score + points, yakuWon: [...run.yakuWon, ...yaku] };
+  const met = run.missions.filter((m) => missionMet(m, after));
+  if (!met.length) return true;
+  // 回数・役のお題は果たしたら減らないので、続けても失わない。点数のお題だけなら、罰符で割る恐れがあればやめる
+  if (met.some((m) => m.kind !== 'points')) return turnsOk;
+  const need = met[0].need;
+  return after.points - notenPenalty(r.honba + 1) - 300 >= need && turnsOk;
 }
 
 /** アイテムの価値の目安（祝儀に換算）。持ち物と雀士で変わる */
@@ -955,7 +1026,7 @@ function charmValue(run: RunState, id: CharmId): number {
     case 'chokin':
       return 1;
     case 'nolimit':
-      return run.wave >= 1 ? 10 : 7;
+      return run.missions.some((m) => m.kind === 'points') ? 9 : 7;
   }
 }
 
@@ -1039,8 +1110,8 @@ function modValue(run: RunState, id: ModId): number {
     case 'shu':
       return 4 + (charms.includes('akaito') ? 3 : 0);
     case 'kin':
-      // 祝儀が増える改造なので、先の場が多いほど価値がある
-      return 1 + (WAVE_COUNT - run.wave);
+      // 祝儀が増える改造なので、残りの局が多いほど価値がある
+      return 1 + kyokuLeft(run);
     case 'nuki':
       return 2;
     case 'utsushi':
@@ -1064,8 +1135,14 @@ function offerValue(run: RunState, o: Offer): number {
   }
 }
 
-/** 買うのは価値が値段を超える品。祝儀の利子（5 につき 1）を残したいので、最後の場の前は少し厳しくする */
-const buyMargin = (run: RunState) => (run.wave >= WAVE_COUNT - 1 ? -1 : 0);
+/** ショップを出たあとに残っている局の数（親の連荘のぶんは数えない） */
+const kyokuLeft = (run: RunState) => KYOKU_COUNT - upcomingKyoku(run);
+
+/**
+ * 買うのは価値が値段を超える品。最後のショップ（このあと東 4 局だけ）では、祝儀を残しても利子は付かず、
+ * 延長にしか使えないので、値段を少し超えるくらいの品も買う
+ */
+const buyMargin = (run: RunState) => (kyokuLeft(run) <= 1 ? -1 : 0);
 
 /** ショップの 1 手 */
 export function smartShopAction(run: RunState, opts: { gacha?: boolean } = {}): GameAction {
@@ -1115,7 +1192,8 @@ export function smartAction(g: GameState, opts: SmartOptions & { shop?: boolean;
   if (!k) throw new Error('no kyoku in progress');
   if (k.result) {
     const r = k.result;
-    return { type: 'settle', renchan: r.type === 'win' && isDealerKyoku(g.run) && smartRenchan(g.run, r.score.points) };
+    if (r.type !== 'win' || !isDealerKyoku(g.run)) return { type: 'settle', renchan: false };
+    return { type: 'settle', renchan: smartRenchan(g.run, r.score.points, wonYakuNames(r.win.evaluation)) };
   }
   return smartKyokuAction(k, situationOf(g.run), g.run.consumables, opts);
 }

@@ -2,26 +2,48 @@ import { describe, expect, it } from 'vitest';
 import { ENGINE_VERSION, apply, createGame, isFinished, newLog, replay, type GameAction, type GameState, type RunLog } from '../src/game.js';
 import { EXTEND_PRICE, EXTEND_TURNS, GACHA, SELL_PRICES } from '../src/items.js';
 import { turnLimit, type KyokuResult } from '../src/kyoku.js';
+import { YAKUMAN_MARK, makeMission, missionLabel, missionMet, type Mission } from '../src/mission.js';
 import { createRng, mix32 } from '../src/rng.js';
-import { buyBlocker, canGacha, canModify, createRun, gachaRefund, leaveShop, orasuNeed, runSummary, settleKyoku, type RunState } from '../src/run.js';
+import {
+  KYOKU_COUNT,
+  buyBlocker,
+  canGacha,
+  canModify,
+  createRun,
+  gachaRefund,
+  interestFor,
+  leaveShop,
+  orasuNeed,
+  runSummary,
+  settleKyoku,
+  type RunState,
+} from '../src/run.js';
 import { botAction } from '../src/sim.js';
 import { KIND_COUNT } from '../src/tiles.js';
 
-/**
- * AI に 1 ランを遊ばせ、操作ログを残す。ショップでは買えるものを買い、牌の改造は最初に選べる牌に使う。
- * gacha なら、ショップで福引きを回せるときは先に回す
- */
-/** 点数だけを決めた和了の結果（精算のテスト用） */
-function winResult(points: number, gold = 0): KyokuResult {
+/** 点数だけを決めた和了の結果（精算のテスト用）。yaku は役の名前 */
+function winResult(points: number, gold = 0, yaku: string[] = [], yakuman = 0): KyokuResult {
   return {
     type: 'win',
     gold,
     score: { points, lines: [] },
     ura: [],
-    win: { evaluation: { yakuman: 0, han: 0, yaku: [], noYaku: true }, tileIds: [], kinds: [], jokers: [], points },
+    win: {
+      evaluation: { yakuman, han: 0, yaku: yaku.map((name) => ({ name, han: 1 })), noYaku: !yaku.length },
+      tileIds: [],
+      kinds: [],
+      jokers: [],
+      points,
+    },
   } as unknown as KyokuResult;
 }
 
+const DRAW: KyokuResult = { type: 'draw', tenpai: false, fee: 0, penalty: 0, stickLost: 0 };
+
+/**
+ * AI に 1 ランを遊ばせ、操作ログを残す。ショップでは買えるものを買い、
+ * 牌の改造は最初に選べる牌に使う。gacha なら、ショップで福引きを回せるときは先に回す
+ */
 function playLogged(seed: number, maxActions = 5000, gacha = false): { log: RunLog; final: GameState } {
   const log = newLog(seed);
   let g = createGame(seed);
@@ -61,6 +83,21 @@ function playLogged(seed: number, maxActions = 5000, gacha = false): { log: RunL
   return { log, final: g };
 }
 
+/** ランを始めたところ（最初のショップが開いている） */
+const shopGame = (seed = 3): GameState => createGame(seed);
+
+/** 最初のショップを出て、東 1 局が始まったところ */
+const firstKyoku = (seed: number): GameState => apply(shopGame(seed), { type: 'leave' });
+
+/** お題を決めたラン（精算のテスト用）。親は東 1 局 */
+function runWith(missions: Mission | Mission[], dan = 0): RunState {
+  const run = createRun(1, { start: { character: 'standard', dan, unlockedYaku: [] } });
+  return { ...run, phase: 'kyoku', shop: null, afterShop: null, missions: [missions].flat(), round: { ...run.round, dealer: 0 } };
+}
+
+/** オーラス（東 4 局）まで進めたラン */
+const atOrasu = (run: RunState, score = 0, wins = 0): RunState => ({ ...run, round: { ...run.round, kyoku: 3, score, wins } });
+
 describe('操作ログと再生', () => {
   // 3 ランを遊んで再生するので、ほかのテストと並んで走ると 5 秒を超えることがある
   it('ログを再生すると同じ最後の状態になる', { timeout: 20_000 }, () => {
@@ -71,14 +108,17 @@ describe('操作ログと再生', () => {
     }
   });
 
-  it('終わったランの成績（突破した場の数と合計点）', () => {
-    for (const seed of [1, 2, 3]) {
+  it('終わったランの成績（お題・クリアしたか・倍率・合計点・記録点）', () => {
+    for (const seed of [1, 2, 3, 4, 5, 6]) {
       const { run } = playLogged(seed).final;
       const s = runSummary(run);
-      // 突破できなかった最後の場も合計に入る
-      expect(run.waveScores).toHaveLength(run.phase === 'cleared' ? 4 : s.wavesCleared + 1);
-      expect(s.totalScore).toBe(run.waveScores.reduce((a, b) => a + b, 0));
-      expect(s.wavesCleared).toBe(run.phase === 'cleared' ? 4 : run.wave);
+      expect(s.missions.map(({ met: _met, ...m }) => m)).toEqual(run.missions);
+      expect(s.cleared).toBe(run.phase === 'cleared');
+      expect(s.totalScore).toBe(run.round.score);
+      const times = s.missions.filter((m) => m.met).reduce((a, m) => a + m.times, 0);
+      expect(s.times).toBe(s.cleared ? times : 1);
+      expect(s.recordScore).toBe(Math.round(s.totalScore * s.times));
+      expect(run.round.kyoku).toBe(KYOKU_COUNT - 1);
     }
     expect(() => runSummary(createGame(1).run)).toThrow(/not finished/);
   });
@@ -97,7 +137,7 @@ describe('操作ログと再生', () => {
   });
 
   it('買い物や牌の改造を含むランがある', () => {
-    const actions = [1, 2, 3, 11].flatMap((seed) => playLogged(seed).log.actions);
+    const actions = [1, 2, 3, 11, 12, 13].flatMap((seed) => playLogged(seed).log.actions);
     const kinds = new Set(actions.map((a) => a.type));
     expect([...kinds]).toEqual(expect.arrayContaining(['discard', 'hold', 'tsumo', 'settle', 'buy', 'leave', 'useConsumable']));
     // 牌の改造（対象の種類つきの買い物）
@@ -111,7 +151,7 @@ describe('操作ログと再生', () => {
   });
 
   it('枠や番号を偽った操作は拒む', () => {
-    const g = createGame(1);
+    const g = firstKyoku(1);
     const bad: unknown[] = [
       { type: 'hold', zone: 'drawn', index: 0, slot: 7 },
       { type: 'hold', zone: 'drawn', index: 0, slot: 0.5 },
@@ -128,9 +168,7 @@ describe('操作ログと再生', () => {
   });
 
   it('ショップの番号と牌の改造の対象を偽った操作は拒む', () => {
-    // ショップが開くまで進める
-    let g = createGame(3);
-    while (g.kyoku) g = apply(g, g.kyoku.result ? { type: 'settle' } : botAction(g.kyoku, { target: '和了形' }));
+    const g = shopGame();
     expect(g.run.phase).toBe('shop');
     const rich = { ...g, run: { ...g.run, money: 99, charms: ['chokin' as const], consumables: ['tsumo' as const] } };
     for (const a of [
@@ -150,8 +188,7 @@ describe('操作ログと再生', () => {
   });
 
   it('ショップでお守りと消耗品を売ると、枠が空いて祝儀が増える', () => {
-    let g = createGame(3);
-    while (g.kyoku) g = apply(g, g.kyoku.result ? { type: 'settle' } : botAction(g.kyoku, { target: '和了形' }));
+    const g = shopGame();
     const owns = { ...g, run: { ...g.run, money: 0, charms: ['chokin' as const], consumables: ['tsumo' as const, 'hiroi' as const] } };
     const charmSold = apply(owns, { type: 'sell', index: 0 });
     expect(charmSold.run).toMatchObject({ charms: [], money: SELL_PRICES.charm });
@@ -160,8 +197,7 @@ describe('操作ログと再生', () => {
   });
 
   it('消耗品の枠がいっぱいでも、売れば買える', () => {
-    let g = createGame(3);
-    while (g.kyoku) g = apply(g, g.kyoku.result ? { type: 'settle' } : botAction(g.kyoku, { target: '和了形' }));
+    const g = shopGame();
     const offer = { kind: 'consumable' as const, id: 'nozoki' as const, price: 3, sold: false };
     const full = { ...g, run: { ...g.run, money: 99, consumables: ['tsumo' as const, 'hiroi' as const], shop: [offer] } };
     expect(buyBlocker(full.run, 0)).toBe('consumablesFull');
@@ -176,12 +212,6 @@ describe('操作ログと再生', () => {
       expect(log.actions.some((a) => a.type === 'gacha')).toBe(true);
       expect(replay(log)).toEqual(final);
     });
-
-    function shopGame(): GameState {
-      let g = createGame(3);
-      while (g.kyoku) g = apply(g, g.kyoku.result ? { type: 'settle' } : botAction(g.kyoku, { target: '和了形' }));
-      return g;
-    }
 
     it('祝儀を払って回し、当たりは持ち物に入る。はずれは祝儀が戻る。ショップごとに 1 回まで', () => {
       const g = shopGame();
@@ -228,14 +258,8 @@ describe('操作ログと再生', () => {
       const top = { ...g.run, start: { ...g.run.start, dan: 5 }, money: 10, gachaTickets: 1 };
       expect(canGacha(top)).toBe(false);
       expect(canGacha({ ...top, start: { ...top.start, dan: 4 } })).toBe(true);
-      const last = { ...createRun(1, { start: { ...g.run.start, dan: 5 } }) };
-      // 雀聖ではオーラスの和了が突破の条件なので、和了って突破する（親でない局にして連荘を避ける）
-      const cleared = settleKyoku(
-        { ...last, round: { ...last.round, kyoku: 3, dealer: 0, score: 999999 } },
-        winResult(999999, 0),
-      );
-      expect(cleared.lastWaveBonus?.tickets).toBe(0);
-      expect(cleared.gachaTickets).toBe(0);
+      const run = runWith(makeMission('wins', 5, 2), 5);
+      expect(settleKyoku({ ...run, round: { ...run.round, kyoku: 1 } }, winResult(1000, 1)).gachaTickets).toBe(0);
     });
 
     it('受け取れない品は当たらない（枠がいっぱい・持っている・棚に並んでいる）', () => {
@@ -250,23 +274,17 @@ describe('操作ログと再生', () => {
       }
     });
 
-    it('場を突破したときと、金牌で和了ったときに福引き券をもらう。ショップを開くと回した結果は消える', () => {
-      const run = createRun(1);
-      const win = { type: 'win', gold: 1, score: { points: 0, lines: [] }, ura: [], win: { evaluation: { yakuman: 0, han: 0, yaku: [], noYaku: true }, tileIds: [], kinds: [], jokers: [], points: 0 } } as unknown as KyokuResult;
-      const afterWin = settleKyoku({ ...run, gacha: { prize: null, ticket: false } }, win);
+    it('金牌で和了ると福引き券をもらう（東 4 局ではもらわない）。ショップを開くと回した結果は消える', () => {
+      const run = runWith(makeMission('wins', 1, 1));
+      const afterWin = settleKyoku({ ...run, round: { ...run.round, kyoku: 1 }, gacha: { prize: null, ticket: false } }, winResult(0, 1));
       expect(afterWin.gachaTickets).toBe(1);
       expect(afterWin.gacha).toBeNull();
-      // オーラスで目標を超えて突破する
-      const last = { ...run, round: { ...run.round, kyoku: 3, score: 99999 } };
-      const cleared = settleKyoku(last, { type: 'draw', tenpai: false, fee: 0, penalty: 0, stickLost: 0 });
-      expect(cleared.phase).toBe('shop');
-      expect(cleared.gachaTickets).toBe(1);
-      expect(cleared.lastWaveBonus?.tickets).toBe(1);
+      expect(settleKyoku(atOrasu(run), winResult(0, 1)).gachaTickets).toBe(0);
     });
   });
 
   it('祝儀を払って最終巡で巡を延ばせる。延長札と合わせて 1 局に 1 回まで', () => {
-    let g = createGame(4);
+    let g = firstKyoku(4);
     const rich = (x: GameState) => ({ ...x, run: { ...x.run, money: 20 } });
     // 最終巡より前は延ばせない
     expect(() => apply(rich(g), { type: 'extend' })).toThrow();
@@ -300,67 +318,138 @@ describe('操作ログと再生', () => {
   });
 });
 
-describe('オーラスの和了（GitHub issue #9）', () => {
-  const DRAW: KyokuResult = { type: 'draw', tenpai: false, fee: 0, penalty: 0, stickLost: 0 };
-  /** 東場のオーラス（親は 1 局目）で、目標点に届いている状態 */
-  const orasu = (dan: number, score = 999999): RunState => {
-    const run = createRun(1, { start: { character: 'standard', dan, unlockedYaku: [] } });
-    return { ...run, round: { ...run.round, kyoku: 3, dealer: 0, score } };
-  };
-  const owned = (r: RunState) => r.charms.length + r.equipment.length + r.consumables.length + Object.keys(r.yakuLevels).length;
-
-  it('五段からはオーラスで和了らないと突破できず、雀聖は目標点の1/4以上の和了が要る', () => {
-    for (const dan of [0, 1, 2, 3]) expect(orasuNeed(orasu(dan))).toBeNull();
-    expect(orasuNeed(orasu(4))).toBe(1);
-    // 雀聖の東場の目標点は 2,000 点
-    expect(orasuNeed(orasu(5))).toBe(500);
-
-    expect(settleKyoku(orasu(3), DRAW).phase).toBe('shop');
-    expect(settleKyoku(orasu(4), DRAW).phase).toBe('over');
-    expect(settleKyoku(orasu(4), winResult(100)).phase).toBe('shop');
-    expect(settleKyoku(orasu(5), winResult(400)).phase).toBe('over');
-    expect(settleKyoku(orasu(5), winResult(500)).phase).toBe('shop');
-    // オーラスで和了っても、場の点数が目標点に届いていなければ突破できない
-    expect(settleKyoku(orasu(4, 0), winResult(100)).phase).toBe('over');
+describe('ランの流れ（東風戦）', () => {
+  it('最初のショップから始まり、出ると東 1 局', () => {
+    const g = createGame(1);
+    expect(g.run).toMatchObject({ phase: 'shop', afterShop: 'firstKyoku', interest: 0 });
+    expect(g.run.shop).toHaveLength(3);
+    expect(g.kyoku).toBeNull();
+    const k = apply(g, { type: 'leave' });
+    expect(k.run.phase).toBe('kyoku');
+    expect(k.run.round.kyoku).toBe(0);
+    expect(k.kyoku).not.toBeNull();
   });
 
-  it('連荘の前の和了で条件を満たしていれば、連荘の局が流局でも突破できる', () => {
-    const base = orasu(5);
-    const dealerOrasu = { ...base, round: { ...base.round, dealer: 3 } };
-    const renchan = settleKyoku(dealerOrasu, winResult(800), true);
-    expect(renchan.phase).toBe('kyoku');
-    expect(renchan.round.orasuWin).toBe(800);
-    expect(settleKyoku(renchan, DRAW).phase).toBe('shop');
+  it('東 1〜3 局のあとは利子をもらってショップ、東 4 局のあとはランが終わる', () => {
+    const run = { ...runWith(makeMission('points', 1, 1)), money: 12 };
+    const shop = settleKyoku(run, DRAW);
+    expect(shop.phase).toBe('shop');
+    expect(shop.interest).toBe(interestFor(12));
+    expect(interestFor(12)).toBe(2);
+    expect(interestFor(100)).toBe(3);
+    expect(shop.money).toBe(12 + 2);
+    expect(leaveShop(shop).round.kyoku).toBe(1);
+    const over = settleKyoku(atOrasu(run), DRAW);
+    expect(over.phase).toBe('over');
+    expect(over.shop).toBeNull();
   });
 
-  it('オーラスで和了ると、景品から 1 つもらえる（連荘で何度和了っても、連荘が途切れたところで 1 回だけ）', () => {
-    for (let seed = 1; seed <= 30; seed++) {
-      const base = { ...orasu(0), rng: createRng(mix32(seed)) };
-      const dealerOrasu = { ...base, round: { ...base.round, dealer: 3 } };
-      // 連荘のあいだはショップが開かないので、まだもらわない
-      const first = settleKyoku(dealerOrasu, winResult(1000), true);
-      const second = settleKyoku(first, winResult(1000), true);
-      expect(second.orasuPrize).toBeNull();
-      expect(owned(second)).toBe(owned(base));
-      // 和了やめでも、連荘の局の流局でも、ショップが開くときに 1 つもらう
-      for (const ended of [settleKyoku(second, winResult(1000)), settleKyoku(second, DRAW)]) {
-        expect(ended.phase).toBe('shop');
-        expect(ended.orasuPrize).not.toBeNull();
-        expect(owned(ended)).toBe(owned(base) + 1);
+  it('お題を果たしていれば東 4 局のあとにクリア、早く果たしても東 4 局まで続く', () => {
+    const run = runWith(makeMission('wins', 1, 1));
+    const one = settleKyoku({ ...run, round: { ...run.round, dealer: 3 } }, winResult(1000));
+    const two = settleKyoku(leaveShop(one), winResult(1000));
+    expect(two.round.wins).toBe(2);
+    expect(two.phase).toBe('shop');
+    expect(settleKyoku(atOrasu(two, two.round.score, 2), DRAW).phase).toBe('cleared');
+  });
+
+  it('お題を 1 つ以上果たせばクリア。記録点は、果たしたお題の倍率の合計を掛ける（クリアしなければ掛けない）', () => {
+    const missions = [makeMission('wins', 1, 1), makeMission('points', 2, 1.5), makeMission('yaku', 3, 2, '清一色')];
+    const run = runWith(missions);
+    // 点数のお題だけ: ×1.5
+    const points = runSummary(settleKyoku(atOrasu(run, 5900), winResult(300)));
+    expect(points).toMatchObject({ cleared: true, times: 1.5, totalScore: 6200, recordScore: 9300 });
+    expect(points.missions.map((m) => m.met)).toEqual([false, true, false]);
+    // 回数と点数: ×2.5、3 つとも: ×4.5
+    expect(runSummary(settleKyoku(atOrasu(run, 5900, 1), winResult(300))).times).toBe(2.5);
+    expect(runSummary(settleKyoku(atOrasu(run, 5900, 1), winResult(300, 0, ['清一色']))).times).toBe(4.5);
+    // 1 つも果たさなければ未達で、倍率は掛けない
+    const over = runSummary(settleKyoku(atOrasu(run, 5000), winResult(300)));
+    expect(over).toMatchObject({ cleared: false, times: 1, totalScore: 5300, recordScore: 5300 });
+  });
+
+  it('連荘の和了も回数に数え、オーラスの親の連荘が途切れたところでランが終わる', () => {
+    const run = runWith(makeMission('wins', 1, 1));
+    const dealerOrasu = { ...atOrasu(run), round: { ...atOrasu(run).round, dealer: 3 } };
+    const first = settleKyoku(dealerOrasu, winResult(1000), true);
+    expect(first.phase).toBe('kyoku');
+    expect(first.round.honba).toBe(1);
+    const second = settleKyoku(first, winResult(1000), true);
+    expect(second.round.wins).toBe(2);
+    expect(settleKyoku(second, DRAW).phase).toBe('cleared');
+  });
+});
+
+describe('お題', () => {
+  it('お題は枠ごとに倍率と段が決まり、種類は重ならない。段位で段が上がる（5 まで）', () => {
+    for (let seed = 1; seed <= 40; seed++) {
+      for (const [dan, tiers, times] of [
+        [0, [1, 2, 3], [1, 1.5, 2]],
+        [1, [2, 3, 4], [1, 1.5, 2]],
+        [4, [3, 4, 5], [1, 1.5, 2]],
+        [5, [4, 5], [1.5, 2]],
+      ] as const) {
+        const { missions } = createRun(seed, { start: { character: 'standard', dan, unlockedYaku: [] } });
+        expect(missions.map((m) => m.tier)).toEqual(tiers);
+        expect(missions.map((m) => m.times)).toEqual(times);
+        expect(new Set(missions.map((m) => m.kind)).size).toBe(missions.length);
       }
     }
-    // オーラスでない局の和了ではもらえない。ショップを出ると、もらった品の表示は消える
-    const run = createRun(1);
-    expect(settleKyoku({ ...run, round: { ...run.round, kyoku: 1, dealer: 0 } }, winResult(1000)).orasuPrize).toBeNull();
-    expect(leaveShop(settleKyoku(orasu(0), winResult(1000))).orasuPrize).toBeNull();
   });
 
-  it('雀聖（福引きなし）でももらえ、ランが終わるときはもらわない', () => {
-    expect(settleKyoku(orasu(5), winResult(1000)).orasuPrize).not.toBeNull();
-    const last = orasu(0);
-    const north = { ...last, wave: 3, round: { ...last.round, target: 1 } };
-    const cleared = settleKyoku(north, winResult(1000));
-    expect(cleared.phase).toBe('cleared');
-    expect(cleared.orasuPrize).toBeNull();
+  it('同じシードなら同じお題で、シードが違えば種類も役も散らばる', () => {
+    expect(createRun(5).missions).toEqual(createRun(5).missions);
+    const seen = new Set<string>();
+    for (let seed = 1; seed <= 60; seed++) for (const m of createRun(seed).missions) seen.add(missionLabel(m));
+    expect([...seen]).toEqual(expect.arrayContaining(['和了 2 回', '和了 3 回', '和了 4 回', '合計 3,000 点以上', '合計 12,000 点以上']));
+    expect([...seen].filter((l) => l.endsWith('で和了る')).length).toBeGreaterThan(4);
+  });
+
+  it('お題の判定（回数・点数・役。役満の段はどの役満でもよい）', () => {
+    const p = (wins: number, points: number, yakuWon: string[] = []) => ({ wins, points, yakuWon });
+    expect(missionMet(makeMission('wins', 2, 1), p(3, 0))).toBe(true);
+    expect(missionMet(makeMission('wins', 2, 1), p(2, 99999))).toBe(false);
+    expect(missionMet(makeMission('points', 1, 1), p(0, 3000))).toBe(true);
+    expect(missionMet(makeMission('points', 1, 1), p(9, 2900))).toBe(false);
+    expect(missionMet(makeMission('yaku', 2, 1, '混一色'), p(1, 0, ['混一色', 'ドラ']))).toBe(true);
+    expect(missionMet(makeMission('yaku', 2, 1, '混一色'), p(1, 0, ['清一色']))).toBe(false);
+    expect(missionMet(makeMission('yaku', 5, 1, YAKUMAN_MARK), p(1, 0, ['字一色', YAKUMAN_MARK]))).toBe(true);
+    expect(() => makeMission('yaku', 1, 1, '清一色')).toThrow();
+  });
+
+  it('役のお題は、その役を含む和了で果たす', () => {
+    const run = runWith(makeMission('yaku', 2, 1.5, '混一色'));
+    const missed = settleKyoku(atOrasu(run), winResult(800, 0, ['清一色']));
+    expect(missed.phase).toBe('over');
+    const hit = settleKyoku(atOrasu(run), winResult(800, 0, ['混一色', '役牌']));
+    expect(hit.phase).toBe('cleared');
+    const yakuman = runWith(makeMission('yaku', 5, 2, YAKUMAN_MARK));
+    expect(settleKyoku(atOrasu(yakuman), winResult(8000, 0, ['字一色'], 1)).phase).toBe('cleared');
+  });
+});
+
+describe('オーラスの和了（段位の縛り。GitHub issue #9）', () => {
+  it('五段からはオーラスで和了らないとクリアにならず、雀聖は 2,000 点以上の和了が要る', () => {
+    const m = makeMission('points', 1, 1);
+    for (const dan of [0, 1, 2, 3]) expect(orasuNeed(runWith(m, dan))).toBeNull();
+    expect(orasuNeed(runWith(m, 4))).toBe(1);
+    expect(orasuNeed(runWith(m, 5))).toBe(2000);
+
+    expect(settleKyoku(atOrasu(runWith(m, 3), 99999), DRAW).phase).toBe('cleared');
+    expect(settleKyoku(atOrasu(runWith(m, 4), 99999), DRAW).phase).toBe('over');
+    expect(settleKyoku(atOrasu(runWith(m, 4), 99999), winResult(100)).phase).toBe('cleared');
+    expect(settleKyoku(atOrasu(runWith(m, 5), 99999), winResult(1900)).phase).toBe('over');
+    expect(settleKyoku(atOrasu(runWith(m, 5), 99999), winResult(2000)).phase).toBe('cleared');
+    // オーラスで和了っても、お題を果たしていなければクリアにならない
+    expect(settleKyoku(atOrasu(runWith(m, 4), 0), winResult(100)).phase).toBe('over');
+  });
+
+  it('連荘の前の和了で条件を満たしていれば、連荘の局が流局でもクリアになる', () => {
+    const base = atOrasu(runWith(makeMission('points', 1, 1), 5), 99999);
+    const dealerOrasu = { ...base, round: { ...base.round, dealer: 3 } };
+    const renchan = settleKyoku(dealerOrasu, winResult(2400), true);
+    expect(renchan.phase).toBe('kyoku');
+    expect(renchan.round.orasuWin).toBe(2400);
+    expect(settleKyoku(renchan, DRAW).phase).toBe('cleared');
   });
 });

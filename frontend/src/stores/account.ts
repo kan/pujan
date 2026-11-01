@@ -193,6 +193,19 @@ export const useAccountStore = defineStore('account', () => {
     submission.value = null;
   }
 
+  /**
+   * 局を終えた途中経過を送る（ランキングに載るランだけ。どこまで遊んだかの集計に使う）。
+   * 送れなくても送り直さず、遊ぶのを止めない（docs/SPEC.md §5.3）
+   */
+  async function reportProgress(runId: string | null, kyoku: number): Promise<void> {
+    if (!runId) return;
+    try {
+      await api.reportProgress(runId, kyoku);
+    } catch {
+      // 集計のためだけの値なので、失敗は捨てる
+    }
+  }
+
   const weeklyRanking = (week?: string) => orNull(api.weeklyRanking(week));
 
   return {
@@ -210,6 +223,7 @@ export const useAccountStore = defineStore('account', () => {
     flushPending,
     submit,
     clearSubmission,
+    reportProgress,
     weeklyRanking,
   };
 });

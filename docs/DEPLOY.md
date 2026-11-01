@@ -67,11 +67,11 @@ ID 基盤の変更は、このリポジトリの作業からは行わない（AG
 β公開の間（docs/SPEC.md フェーズ 4.5）は、遊んだ人の感想と、記録したランの操作ログを D1 に残す。読むのはリポジトリのスクリプトで、D1 には書き込まない。
 
 ```bash
-npm run stats -w backend -- --env production            # プレイの集計（雀士・段位ごとのクリア率、負けた場、役、ショップの品）
+npm run stats -w backend -- --env production            # プレイの集計（雀士・段位・お題ごとのクリア率、止まった局、役、ショップの品）
 npm run stats -w backend -- feedback --env production   # 新しい順の感想（既定 30 件。--limit N）
 ```
 
-`--env` は `local`（既定）・`dev`・`production`。集計はルールの版（engine の `ENGINE_VERSION`）ごとで、既定は今の版、`--version N` で前の版も見られる（記録したときに数えた結果を `runs.stats` に残している）。個人が分かる値は出さない。感想の一覧は ID の全体を出さず、同じ人の感想は ID の先頭 8 文字で見分ける。
+`--env` は `local`（既定）・`dev`・`production`。集計はルールの版（engine の `ENGINE_VERSION`）ごとで、既定は今の版、`--version N` で前の版も見られる（記録したときに数えた結果を `runs.stats` に残している）。東風戦にする前（版 10 まで）は集計の形が違うので、そのころのコード（git の `85379f9`）で読む。個人が分かる値は出さない。感想の一覧は ID の全体を出さず、同じ人の感想は ID の先頭 8 文字で見分ける。
 
 ## 2 回目以降のデプロイ
 

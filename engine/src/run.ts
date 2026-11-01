@@ -1,8 +1,9 @@
 /**
  * ローグライトのラン。仕様は docs/SPEC.md §4「ローグライト」。
  *
- * 東南西北の 4 場（1 場 4 局）を勝ち抜けばクリア。局の合間にショップが開く。
- * 局そのものは kyoku.ts が進め、ここは局の結果の精算・場の進行・ショップを受け持つ。
+ * 1 ランは東風戦（東 1〜4 局）。始めに掲げたお題（mission.ts）を、東 4 局を終えたときに 1 つ以上果たしていればクリア。
+ * ランの始め（東 1 局の前）と、東 1〜3 局のあとにショップが開く。
+ * 局そのものは kyoku.ts が進め、ここは局の結果の精算・ランの進行・ショップを受け持つ。
  */
 import {
   BOSSES,
@@ -31,9 +32,9 @@ import {
   type Modifiers,
 } from './items.js';
 import { defaultComposition, startKyoku, type Composition, type KyokuResult, type KyokuState } from './kyoku.js';
+import { metTimes, missionResults, rollMissions, wonYakuNames, type Mission, type MissionResult } from './mission.js';
 import {
   DEFAULT_START,
-  YAKUMAN_MARK,
   characterOf,
   charmAvailable,
   runRulesFor,
@@ -44,13 +45,14 @@ import type { FinalScore } from './score.js';
 import { createRng, mix32, nextFloat, nextInt } from './rng.js';
 import { EAST, KIND_COUNT, type Kind } from './tiles.js';
 
-// 場の目標点・始めの祝儀・ショップの品の数は雀士と段位で変わる（progression.ts の runRulesFor）
-export const WAVE_COUNT = 4;
-/** 場の名前（0: 東〜3: 北） */
-export const WIND_NAMES = ['東', '南', '西', '北'] as const;
-export const KYOKU_PER_WAVE = 4;
+// お題・始めの祝儀・ショップの品の数は雀士と段位で変わる（progression.ts の runRulesFor）
+/** 1 ランの局の数（東 1〜4 局。親の連荘のぶんは数えない） */
+export const KYOKU_COUNT = 4;
 /** 流局時に聴牌していたときの祝儀 */
 export const TENPAI_MONEY = 1;
+/** 利子: 東 1〜3 局のあとにショップを開くとき、持っている祝儀 INTEREST_STEP ごとに 1（最大 INTEREST_MAX） */
+export const INTEREST_STEP = 5;
+export const INTEREST_MAX = 3;
 
 export interface RoundLogEntry {
   kyoku: number;
@@ -61,18 +63,20 @@ export interface RoundLogEntry {
   dealer: boolean;
 }
 
-/** 1 場（東場・南場…）の状態 */
+/** 東風戦（東 1〜4 局）の状態 */
 export interface Round {
   /** 0〜3（東1局〜東4局） */
   kyoku: number;
+  /** 4 局の合計点（流局の聴牌料・罰符・リーチ棒を含む） */
   score: number;
+  /** 和了の回数（連荘の和了も数える） */
+  wins: number;
   /** 親番の局（0〜3） */
   dealer: number;
   honba: number;
-  /** オーラス（4 局目）のボス */
+  /** オーラス（東 4 局）のボス */
   boss: BossId;
-  target: number;
-  /** オーラス（4 局目）でいちばん高かった和了の点数（和了っていなければ 0）。段位の突破の条件に使う */
+  /** オーラス（東 4 局）でいちばん高かった和了の点数（和了っていなければ 0）。段位のクリアの条件に使う */
   orasuWin: number;
   log: RoundLogEntry[];
 }
@@ -100,18 +104,10 @@ export type Offer =
   | { kind: 'mod'; id: ModId; price: number; sold: boolean }
   | { kind: 'scroll'; yaku: string; price: number; sold: boolean };
 
-/** 場の突破で受け取った祝儀の内訳と福引き券 */
-export interface WaveBonus {
-  clear: number;
-  interest: number;
-  over: number;
-  /** 福引き券の枚数（全場クリアではもう使えないので 0） */
-  tickets: number;
-}
-
+/** over はお題を 1 つも果たせずに終わったラン（か段位の縛りを満たせなかったラン）、cleared はクリア */
 export type RunPhase = 'kyoku' | 'shop' | 'over' | 'cleared';
-/** ショップを出たあとに進む先（親の連荘のあいだはショップを開かない。settleKyoku） */
-export type AfterShop = 'nextKyoku' | 'nextWave';
+/** ショップを出たあとに進む先（最初のショップは東 1 局へ。親の連荘のあいだはショップを開かない。settleKyoku） */
+export type AfterShop = 'firstKyoku' | 'nextKyoku';
 
 export interface RunState {
   seed: number;
@@ -120,10 +116,10 @@ export interface RunState {
   start: RunStart;
   /** 基本ルール（雀士と段位から決まる。目標点・ショップの品の数は start から runRulesFor で引く） */
   base: BaseRules;
-  /** このランで和了った役の名前（解禁に使う。progression.ts の progressAfter） */
+  /** このランで和了った役の名前（役のお題と解禁に使う。progression.ts の progressAfter） */
   yakuWon: string[];
-  /** 0〜3（東・南・西・北） */
-  wave: number;
+  /** このランのお題（同時に掲げる。種類は重ならない） */
+  missions: Mission[];
   money: number;
   charms: CharmId[];
   equipment: EquipId[];
@@ -134,16 +130,12 @@ export interface RunState {
   phase: RunPhase;
   shop: Offer[] | null;
   afterShop: AfterShop | null;
-  /** 直前に突破した場の祝儀（ショップの前に表示する） */
-  lastWaveBonus: WaveBonus | null;
-  /** 終わった場の点数（突破できなかった最後の場を含む）。ランキングの合計点に使う */
-  waveScores: number[];
+  /** 今のショップを開くときにもらった利子（最初のショップと、ショップの外では 0） */
+  interest: number;
   /** 福引き券（祝儀を払わずに福引きを 1 回回せる）の枚数 */
   gachaTickets: number;
   /** 今のショップで回した福引きの結果（まだ回していなければ null。ショップを開くたびに戻す） */
   gacha: GachaResult | null;
-  /** 直前の精算で、オーラスの和了の褒美にもらった品（もらっていなければ null。ショップを出ると戻す） */
-  orasuPrize: Offer | null;
 }
 
 /** 福引きの結果 */
@@ -154,13 +146,13 @@ export interface GachaResult {
   ticket: boolean;
 }
 
-function newRound(rng: number, wave: number, targets: readonly number[]): [number, Round] {
+function newRound(rng: number): [number, Round] {
   let r = rng;
   let dealer: number;
   let boss: number;
-  [r, dealer] = nextInt(r, KYOKU_PER_WAVE);
+  [r, dealer] = nextInt(r, KYOKU_COUNT);
   [r, boss] = nextInt(r, BOSSES.length);
-  return [r, { kyoku: 0, score: 0, dealer, honba: 0, boss: BOSSES[boss].id, target: targets[wave], orasuWin: 0, log: [] }];
+  return [r, { kyoku: 0, score: 0, wins: 0, dealer, honba: 0, boss: BOSSES[boss].id, orasuWin: 0, log: [] }];
 }
 
 export interface RunOptions {
@@ -181,19 +173,21 @@ export function createRun(seed: number, options: RunOptions = {}): RunState {
   const start = options.start ?? DEFAULT_START;
   const rules = runRulesFor(start);
   const base = options.base ?? rules.base;
-  const [rng, round] = newRound(createRng(mix32(seed)), 0, rules.targets);
+  const [rng0, round] = newRound(createRng(mix32(seed)));
+  const [rng, missions] = rollMissions(rng0, rules.missionSlots);
   let composition = defaultComposition(base.redFives);
   for (const m of options.mods ?? []) {
     if (!canModify(composition, m.id, m.kind)) throw new Error(`cannot apply ${m.id} to ${m.kind}`);
     composition = applyMod(composition, m.id, m.kind);
   }
-  return {
+  // 最初のショップ（東 1 局の前）から始まる
+  return openShop({
     seed,
     rng,
     start,
     base,
     yakuWon: [],
-    wave: 0,
+    missions,
     money: options.money ?? rules.startMoney,
     // 雀士の固有のお守りは入れない（枠に数えず売れないので、雀士から毎回求める。innateCharms）
     charms: [...(options.loadout?.charms ?? [])],
@@ -202,15 +196,13 @@ export function createRun(seed: number, options: RunOptions = {}): RunState {
     yakuLevels: {},
     composition,
     round,
-    phase: 'kyoku',
+    phase: 'shop',
     shop: null,
     afterShop: null,
-    lastWaveBonus: null,
-    waveScores: [],
+    interest: 0,
     gachaTickets: 0,
     gacha: null,
-    orasuPrize: null,
-  };
+  }, 'firstKyoku');
 }
 
 /**
@@ -225,27 +217,37 @@ export const ownedCharms = (run: RunState): CharmId[] => [...innateCharms(run), 
 /** 局のルールに効く持ち物。お守りの効果はここからだけ読む（run.charms を直接読むと固有のお守りが抜ける） */
 export const loadoutOf = (run: RunState): Loadout => ({ charms: ownedCharms(run), equipment: run.equipment });
 
-export const bakazeOf = (run: RunState): Kind => EAST + run.wave;
+/** 場風（東風戦なのでいつも東） */
+export const bakazeOf = (_run: RunState): Kind => EAST;
 export const isDealerKyoku = (run: RunState): boolean => run.round.kyoku === run.round.dealer;
 /** 自風: 親の局は東、そこから逆算して南・西・北 */
 export const seatOf = (run: RunState): Kind => EAST + ((((run.round.dealer - run.round.kyoku) % 4) + 4) % 4);
-/** オーラス（場の 4 局目） */
-export const isOrasu = (run: RunState): boolean => run.round.kyoku === KYOKU_PER_WAVE - 1;
+/** オーラス（東 4 局） */
+export const isOrasu = (run: RunState): boolean => run.round.kyoku === KYOKU_COUNT - 1;
 export const bossOf = (run: RunState): BossId | null => (isOrasu(run) ? run.round.boss : null);
 
 /**
- * 場を突破するのに要る、オーラスの和了の点数（段位の縛り。docs/SPEC.md §4.6）。条件がなければ null。
+ * クリアに要る、オーラスの和了の点数（段位の縛り。docs/SPEC.md §4.6）。条件がなければ null。
  * 点数を問わない段位では 1（どんな和了でもよい）
  */
 export function orasuNeed(run: RunState): number | null {
-  const share = runRulesFor(run.start).orasuWin;
-  return share === null ? null : Math.max(1, Math.ceil((run.round.target * share) / 100) * 100);
+  const need = runRulesFor(run.start).orasuWin;
+  return need === null ? null : Math.max(1, need);
 }
 
-/** 場の点数とオーラスの和了が、突破の条件を満たしているか */
-export function waveClearedBy(run: RunState): boolean {
+/** お題の進み具合を見るための記録（mission.ts の missionMet に渡す） */
+export const missionProgressOf = (run: RunState) => ({ wins: run.round.wins, points: run.round.score, yakuWon: run.yakuWon });
+
+/** お題ごとに、今の時点で果たしているかを添える */
+export const missionResultsOf = (run: RunState): MissionResult[] => missionResults(run.missions, missionProgressOf(run));
+
+/** お題を 1 つ以上果たしているか */
+export const anyMissionDone = (run: RunState): boolean => missionResultsOf(run).some((r) => r.met);
+
+/** お題とオーラスの和了（段位の縛り）が、クリアの条件を満たしているか */
+export function clearedBy(run: RunState): boolean {
   const need = orasuNeed(run);
-  return run.round.score >= run.round.target && (need === null || run.round.orasuWin >= need);
+  return anyMissionDone(run) && (need === null || run.round.orasuWin >= need);
 }
 
 /** 今の局のルール（持ち物・ボス・親番・本場から決まる。AI の連荘の判断も、次の本場をこれで見積もる） */
@@ -269,12 +271,15 @@ export function beginKyoku(run: RunState): { run: RunState; kyoku: KyokuState } 
   return { run: { ...run, rng }, kyoku };
 }
 
-/** 和了の祝儀: 2＋翻数の半分（最大 6）、役満は 6、金牌 1 枚につき＋2 */
-export function moneyForWin(result: Extract<KyokuResult, { type: 'win' }>): number {
+/** 和了の祝儀: 2＋翻数の半分（最大 6）、役満は 6、金牌 1 枚につき＋2。段位の縛りで減る（0 より下にはしない） */
+export function moneyForWin(run: RunState, result: Extract<KyokuResult, { type: 'win' }>): number {
   const ev = result.win.evaluation;
   const base = ev.yakuman ? 6 : 2 + Math.min(4, Math.floor(ev.han / 2));
-  return base + result.gold * GOLD_MONEY;
+  return Math.max(0, base + runRulesFor(run.start).winMoneyDelta) + result.gold * GOLD_MONEY;
 }
+
+/** 東 1〜3 局のあとにショップを開くときの利子 */
+export const interestFor = (money: number): number => Math.min(INTEREST_MAX, Math.floor(money / INTEREST_STEP));
 
 /** 局の点数の増減（リーチ棒は宣言時ではなく精算時に引く） */
 export function pointsDelta(result: KyokuResult): number {
@@ -294,7 +299,7 @@ function winLabel(score: FinalScore): string {
 
 /**
  * 局の結果を精算する。親の和了では renchan で連荘か和了やめかを選ぶ。
- * 4 局目のあとは場の判定に進み、それ以外はショップを開く。
+ * 東 4 局のあとはランの判定に進み、それ以外は利子を渡してショップを開く。
  */
 export function settleKyoku(run: RunState, result: KyokuResult, renchan = false): RunState {
   const dealer = isDealerKyoku(run);
@@ -303,13 +308,11 @@ export function settleKyoku(run: RunState, result: KyokuResult, renchan = false)
   let yakuWon = run.yakuWon;
   let gachaTickets = run.gachaTickets;
   if (result.type === 'win') {
-    money += moneyForWin(result);
+    round.wins++;
+    money += moneyForWin(run, result);
     gachaTickets += ticketsForWin(run, result);
-    // 解禁に使う（ボーナスの翻・役満の名前も含める。役満なら印も入れる）
-    const ev = result.win.evaluation;
-    const names = ev.yaku.map((y) => y.name);
-    if (ev.yakuman) names.push(YAKUMAN_MARK);
-    yakuWon = [...new Set([...yakuWon, ...names])];
+    // 役のお題と解禁に使う（ボーナスの翻・役満の名前も含める。役満なら印も入れる）
+    yakuWon = [...new Set([...yakuWon, ...wonYakuNames(result.win.evaluation)])];
     round.log.push({
       kyoku: round.kyoku,
       honba: round.honba,
@@ -337,62 +340,43 @@ export function settleKyoku(run: RunState, result: KyokuResult, renchan = false)
     round: { ...round, honba: continues ? round.honba + 1 : 0 },
     yakuWon,
     gachaTickets,
-    orasuPrize: null,
   };
   if (continues) return next;
-  const settled = isOrasu(run) ? endWave(next) : openShop(next, 'nextKyoku');
-  // オーラスで和了っていれば、品を 1 つもらう。オーラスのあとのショップは 1 度だけ開くので、連荘で何度和了っても 1 回。
-  // ランが終わったら（場で負けた・全場クリア）、品はもう使えないので渡さない
-  return isOrasu(run) && round.orasuWin > 0 && settled.phase === 'shop' ? giveOrasuPrize(settled) : settled;
+  if (isOrasu(run)) return { ...next, phase: clearedBy(next) ? 'cleared' : 'over', shop: null, afterShop: null };
+  const interest = interestFor(next.money);
+  return openShop({ ...next, money: next.money + interest }, 'nextKyoku', interest);
+}
+
+/** 終わったランの成績（ランキングに使う。docs/SPEC.md §4.1・§5.4） */
+export interface RunSummary {
+  /** お題（果たしたかを添える） */
+  missions: MissionResult[];
+  cleared: boolean;
+  /** 記録点に掛けた倍率（果たしたお題の倍率の合計。クリアしなければ 1） */
+  times: number;
+  /** 4 局の合計点 */
+  totalScore: number;
+  /** 記録点（クリアしたときだけ、合計点に倍率を掛ける） */
+  recordScore: number;
 }
 
 /**
- * オーラスの和了の褒美（GitHub issue #9）。福引きと同じ景品から、はずれなしで 1 つ選んで持ち物に加える。
- * 福引きのない段位（雀聖）でももらえる。受け取れる品がどの種類にもなければ何ももらえない
+ * ランキングに記録した成績。4 場の形で記録した行は、お題が null で、クリアなし・記録点 0（16 局の合計点は totalScore）
  */
-function giveOrasuPrize(run: RunState): RunState {
-  const [rng, prize] = pickPrize(run.rng, run);
-  const next: RunState = { ...run, rng, orasuPrize: prize };
-  return prize ? receive(next, prize) : next;
-}
+export type RecordedSummary = Omit<RunSummary, 'missions'> & { missions: MissionResult[] | null };
 
-function endWave(ended: RunState): RunState {
-  const { score, target } = ended.round;
-  const run = { ...ended, waveScores: [...ended.waveScores, score] };
-  if (!waveClearedBy(run)) return { ...run, phase: 'over', shop: null, afterShop: null };
-  /** 最後の場（突破すると全場クリアで、もうショップは開かない） */
-  const last = run.wave >= WAVE_COUNT - 1;
-  const bonus: WaveBonus = {
-    // 突破の祝儀は段位で減る（progression.ts の runRulesFor）
-    clear: runRulesFor(run.start).clearBonus,
-    interest: Math.min(5, Math.floor(run.money / 5)),
-    over: Math.max(0, Math.min(3, Math.floor((score / target - 1) / 0.5))),
-    tickets: last || !hasGacha(run) ? 0 : 1,
-  };
-  const next = {
-    ...run,
-    money: run.money + bonus.clear + bonus.interest + bonus.over,
-    gachaTickets: run.gachaTickets + bonus.tickets,
-    lastWaveBonus: bonus,
-  };
-  if (last) return { ...next, phase: 'cleared', shop: null, afterShop: null };
-  return openShop(next, 'nextWave');
-}
-
-/** 終わったランの成績（ランキングに使う。docs/SPEC.md §5.4） */
-export interface RunSummary {
-  /** 突破した場の数（0〜4。4 は全場クリア） */
-  wavesCleared: number;
-  /** 終わった場の点数の合計 */
-  totalScore: number;
+/**
+ * お題の結果・クリアしたか・合計点から成績を組み立てる（サーバーが記録した行から作り直すときも同じ規則にする）。
+ * 記録点の端数は四捨五入（合計点は 100 点単位なので、×1.5 などでは 50 点単位になる）
+ */
+export function summaryOf(missions: MissionResult[], cleared: boolean, totalScore: number): RunSummary {
+  const times = cleared ? metTimes(missions) : 1;
+  return { missions, cleared, times, totalScore, recordScore: Math.round(totalScore * times) };
 }
 
 export function runSummary(run: RunState): RunSummary {
   if (run.phase !== 'over' && run.phase !== 'cleared') throw new Error('run has not finished');
-  return {
-    wavesCleared: run.phase === 'cleared' ? WAVE_COUNT : run.wave,
-    totalScore: run.waveScores.reduce((a, s) => a + s, 0),
-  };
+  return summaryOf(missionResultsOf(run), run.phase === 'cleared', run.round.score);
 }
 
 /* ---------- ショップ ---------- */
@@ -470,8 +454,9 @@ function rollOffers(run: RunState): RunState {
   return { ...run, rng, shop: offers };
 }
 
-export function openShop(run: RunState, after: AfterShop): RunState {
-  return rollOffers({ ...run, phase: 'shop', afterShop: after, gacha: null });
+/** ショップを開く。interest は、開くときにもらった利子（画面に出すだけ。祝儀には足してから渡す） */
+export function openShop(run: RunState, after: AfterShop, interest = 0): RunState {
+  return rollOffers({ ...run, phase: 'shop', afterShop: after, interest, gacha: null });
 }
 
 export function reroll(run: RunState): RunState {
@@ -606,7 +591,7 @@ export function gacha(run: RunState): RunState {
 }
 
 /**
- * 景品を 1 つ選ぶ（福引きの当たりと、オーラスの和了の褒美）。受け取れる品のある種類を出やすさの重みで選び、
+ * 福引きの景品を 1 つ選ぶ。受け取れる品のある種類を出やすさの重みで選び、
  * その中から 1 つ。受け取れる品がどの種類にもなければ null（乱数は使わない）
  */
 function pickPrize(rng: number, run: RunState): [number, OfferOf<GachaKind> | null] {
@@ -626,20 +611,24 @@ export const gachaRefund = (g: GachaResult): number => (g.prize || g.ticket ? 0 
 
 /**
  * 和了でもらう福引き券（金牌を使って和了ると、金牌の枚数によらず 1 枚）。
- * 最後の場の最後の局の和了なら、あとにショップが開かないので渡さない（親の連荘のあいだもショップは開かない）
+ * 東 4 局の和了なら、あとにショップが開かないので渡さない（親の連荘のあいだもショップは開かない）
  */
 export function ticketsForWin(run: RunState, result: Extract<KyokuResult, { type: 'win' }>): number {
-  const noMoreShop = run.wave >= WAVE_COUNT - 1 && isOrasu(run);
-  return result.gold > 0 && !noMoreShop && hasGacha(run) ? 1 : 0;
+  return result.gold > 0 && !isOrasu(run) && hasGacha(run) ? 1 : 0;
 }
 
-/** ショップを出て、次の局（または次の場）へ進む */
+/**
+ * 次に打つ局（0〜3）。ショップでは、出たあとに始まる局（最初のショップのあとは東 1 局、それ以外は次の局）。
+ * 精算では局を進めず、ショップを出るときに進める
+ */
+export const upcomingKyoku = (run: RunState): number =>
+  run.phase === 'shop' && run.afterShop === 'nextKyoku' ? run.round.kyoku + 1 : run.round.kyoku;
+
+/** ショップを出て、局へ進む */
 export function leaveShop(run: RunState): RunState {
   if (run.phase !== 'shop') throw new Error('not in the shop');
-  const base = { ...run, phase: 'kyoku' as const, shop: null, afterShop: null, orasuPrize: null };
-  if (run.afterShop === 'nextKyoku') return { ...base, round: { ...run.round, kyoku: run.round.kyoku + 1 } };
-  const [rng, round] = newRound(run.rng, run.wave + 1, runRulesFor(run.start).targets);
-  return { ...base, rng, wave: run.wave + 1, round, lastWaveBonus: null };
+  const round = { ...run.round, kyoku: upcomingKyoku(run) };
+  return { ...run, phase: 'kyoku', shop: null, afterShop: null, interest: 0, round };
 }
 
 /** 局の中で消耗品を使ったら持ち物から外す（局の操作は kyoku.ts の step で行う） */

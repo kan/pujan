@@ -4,17 +4,23 @@
  */
 import { BOSSES } from './items.js';
 import { isFinished, replay, type GameState, type RunLog } from './game.js';
+import { missionKey, timesLabel } from './mission.js';
 import { startLabel } from './progression.js';
-import { WAVE_COUNT, offerName, runSummary } from './run.js';
+import { offerName, runSummary } from './run.js';
 
-/** 終わった 1 つのランから数えたもの */
+/** 終わった 1 つのランから数えたもの（東風戦。ルールの版 11 から） */
 export interface RunStats {
   /** 雀士と段位（「くま・初段」） */
   start: string;
-  /** 突破した場の数（4 は全場クリア） */
-  wavesCleared: number;
-  /** 負けた場のボスの名前（全場クリアでは null） */
-  lostBoss: string | null;
+  /** 掲げたお題（種類と段は「回数・段2」。mission.ts の missionKey）と、果たしたか */
+  missions: { key: string; times: number; met: boolean }[];
+  cleared: boolean;
+  /** 記録点に掛けた倍率（果たしたお題の倍率の合計。クリアしなければ 1） */
+  times: number;
+  /** 4 局の合計点 */
+  totalScore: number;
+  /** オーラスのボスの名前 */
+  boss: string;
   kyoku: number;
   wins: number;
   /** 和了った役の名前（和了ごとに、その和了の役をすべて） */
@@ -65,13 +71,17 @@ export function replayWithStats(log: RunLog): { game: GameState; stats: RunStats
     }
   });
   if (!isFinished(g)) return { game: g, stats: null };
-  const boss = g.run.phase === 'over' ? g.run.round.boss : null;
+  const summary = runSummary(g.run);
+  const boss = g.run.round.boss;
   return {
     game: g,
     stats: {
       start: startLabel(log.start),
-      wavesCleared: runSummary(g.run).wavesCleared,
-      lostBoss: boss && (BOSSES.find((b) => b.id === boss)?.name ?? boss),
+      missions: summary.missions.map((m) => ({ key: missionKey(m), times: m.times, met: m.met })),
+      cleared: summary.cleared,
+      times: summary.times,
+      totalScore: summary.totalScore,
+      boss: BOSSES.find((b) => b.id === boss)?.name ?? boss,
       ...s,
     },
   };
@@ -86,15 +96,26 @@ export function analyzeRun(log: RunLog): RunStats | null {
   }
 }
 
+/** ラン数・クリア数・合計点の和 */
+export interface ClearCount {
+  runs: number;
+  cleared: number;
+  score: number;
+}
+
 /** 集計の結果 */
 export interface PlayStats {
   runs: number;
-  /** 雀士と段位ごとのラン数・全場クリア数・突破した場の合計 */
-  byStart: Record<string, { runs: number; cleared: number; waves: number }>;
-  /** ラン終了で負けた場ごとの数（東・南・西・北） */
-  lostAt: number[];
-  /** 負けた場のボスごとの数 */
-  lostBoss: Record<string, number>;
+  /** 雀士と段位ごと */
+  byStart: Record<string, ClearCount>;
+  /** お題の種類と段ごと（runs は掲げた数、cleared は果たした数、score はそのランの合計点の和） */
+  byMission: Record<string, ClearCount>;
+  /** お題の倍率の枠ごと（「×1.5」。数え方は byMission と同じ） */
+  byTimes: Record<string, ClearCount>;
+  /** 1 ランで果たしたお題の数ごとのラン数（「0」〜「3」） */
+  byMetCount: Record<string, number>;
+  /** オーラスのボスごと */
+  byBoss: Record<string, ClearCount>;
   kyoku: number;
   wins: number;
   /** 役ごとの和了の数 */
@@ -113,12 +134,22 @@ const bump = (m: Record<string, number>, k: string) => {
   m[k] = (m[k] ?? 0) + 1;
 };
 
+/** cleared はクリアしたか（お題ごとに数えるときは、そのお題を果たしたか） */
+const count = (m: Record<string, ClearCount>, k: string, r: RunStats, cleared = r.cleared) => {
+  const c = (m[k] ??= { runs: 0, cleared: 0, score: 0 });
+  c.runs++;
+  if (cleared) c.cleared++;
+  c.score += r.totalScore;
+};
+
 export function aggregate(runs: readonly RunStats[]): PlayStats {
   const out: PlayStats = {
     runs: runs.length,
     byStart: {},
-    lostAt: Array<number>(WAVE_COUNT).fill(0),
-    lostBoss: {},
+    byMission: {},
+    byTimes: {},
+    byMetCount: {},
+    byBoss: {},
     kyoku: 0,
     wins: 0,
     yaku: {},
@@ -128,12 +159,13 @@ export function aggregate(runs: readonly RunStats[]): PlayStats {
     extendTickets: 0,
   };
   for (const r of runs) {
-    const s = (out.byStart[r.start] ??= { runs: 0, cleared: 0, waves: 0 });
-    s.runs++;
-    s.waves += r.wavesCleared;
-    if (r.wavesCleared >= WAVE_COUNT) s.cleared++;
-    else out.lostAt[r.wavesCleared]++;
-    if (r.lostBoss) bump(out.lostBoss, r.lostBoss);
+    count(out.byStart, r.start, r);
+    for (const m of r.missions) {
+      count(out.byMission, m.key, r, m.met);
+      count(out.byTimes, timesLabel(m.times), r, m.met);
+    }
+    bump(out.byMetCount, String(r.missions.filter((m) => m.met).length));
+    count(out.byBoss, r.boss, r);
     out.kyoku += r.kyoku;
     out.wins += r.wins;
     for (const y of r.yaku) bump(out.yaku, y);

@@ -7,6 +7,7 @@ import { EMPTY_PROGRESS, withCharacters, type CharacterId, type Progress } from 
 /** progress の表の列（ほかの表と JOIN したときは、ない ID で NULL になる） */
 export interface ProgressRow {
   yaku_won: string | null;
+  best_times: number | null;
   best_waves: number | null;
   dan_cleared: number | null;
   /** NULL は雀士の一覧を足す前の行（withCharacters で今の条件から求める） */
@@ -18,6 +19,7 @@ export const progressOfRow = (row: ProgressRow | null): Progress =>
     ? EMPTY_PROGRESS
     : withCharacters({
         yakuWon: JSON.parse(row.yaku_won) as string[],
+        bestTimes: row.best_times ?? 0,
         bestWaves: row.best_waves!,
         danCleared: row.dan_cleared!,
         characters: row.characters == null ? undefined : (JSON.parse(row.characters) as CharacterId[]),
@@ -25,7 +27,7 @@ export const progressOfRow = (row: ProgressRow | null): Progress =>
 
 export async function loadProgress(db: D1Database, accountId: string): Promise<Progress> {
   const row = await db
-    .prepare('SELECT yaku_won, best_waves, dan_cleared, characters FROM progress WHERE account_id = ?')
+    .prepare('SELECT yaku_won, best_times, best_waves, dan_cleared, characters FROM progress WHERE account_id = ?')
     .bind(accountId)
     .first<ProgressRow>();
   const p = progressOfRow(row);
@@ -47,10 +49,12 @@ export async function loadProgress(db: D1Database, accountId: string): Promise<P
 export const upsertProgress = (db: D1Database, accountId: string, p: Progress, now = Date.now()) =>
   db
     .prepare(
-      `INSERT INTO progress (account_id, yaku_won, best_waves, dan_cleared, characters, updated_at) VALUES (?, ?, ?, ?, ?, ?)
+      `INSERT INTO progress (account_id, yaku_won, best_times, best_waves, dan_cleared, characters, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT (account_id) DO UPDATE SET
          yaku_won = (SELECT json_group_array(value) FROM (
            SELECT value FROM json_each(progress.yaku_won) UNION SELECT value FROM json_each(excluded.yaku_won) ORDER BY value)),
+         best_times = MAX(progress.best_times, excluded.best_times),
          best_waves = MAX(progress.best_waves, excluded.best_waves),
          dan_cleared = MAX(progress.dan_cleared, excluded.dan_cleared),
          characters = (SELECT json_group_array(value) FROM (
@@ -58,4 +62,4 @@ export const upsertProgress = (db: D1Database, accountId: string, p: Progress, n
            UNION SELECT value FROM json_each(excluded.characters) ORDER BY value)),
          updated_at = excluded.updated_at`,
     )
-    .bind(accountId, JSON.stringify(p.yakuWon), p.bestWaves, p.danCleared, JSON.stringify(p.characters), now);
+    .bind(accountId, JSON.stringify(p.yakuWon), p.bestTimes, p.bestWaves, p.danCleared, JSON.stringify(p.characters), now);

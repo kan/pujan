@@ -27,7 +27,7 @@ import type { Kind } from './tiles.js';
  * エンジンの版。同じ操作ログから違う結果になる変更（役・点数・乱数の使い方・ショップなど）をしたら 1 つ上げる。
  * サーバーは記録の版と今の版が違うログを再生で検証できない（§5.3）。
  */
-export const ENGINE_VERSION = 10;
+export const ENGINE_VERSION = 11;
 
 /** プレイヤーの操作 */
 export type GameAction =
@@ -67,7 +67,7 @@ export interface RunLog {
   actions: GameAction[];
 }
 
-/** ラン終了（over）と全場クリア（cleared） */
+/** ラン終了（over はクリアにならなかった、cleared はクリア） */
 export const isFinished = (g: GameState): boolean => g.run.phase === 'over' || g.run.phase === 'cleared';
 
 const withKyoku = (run: RunState, previous: KyokuState | null): GameState =>

@@ -3,7 +3,7 @@
  *
  * - dealTable: 配牌 5 枚（山から 5 枚）でそのまま目標の形になる確率を、正確に数える
  * - simulateTarget: 目標の形を狙って打つ AI で、1 局のうちに和了れる割合を測る
- * - simulateRuns: 同じ AI でランを遊ばせ、どの場まで進めたかを数える（アイテムを持たせて比べる）
+ * - simulateRuns: AI にランを遊ばせ、お題のクリア率と点数を数える（アイテムを持たせて比べる）
  *
  * CLI（scripts/sim.mjs）とテストから使う。frontend からは使わないので index.ts からは出さない。
  */
@@ -31,9 +31,10 @@ import {
   type KyokuState,
   type Zone,
 } from './kyoku.js';
+import { missionKey } from './mission.js';
 import { DEFAULT_START, runRulesFor, type RunStart } from './progression.js';
 import { createRng, mix32, nextInt } from './rng.js';
-import { WAVE_COUNT, canGacha, type RunState } from './run.js';
+import { canGacha, runSummary, type RunState } from './run.js';
 import { DRAGONS, EAST, KIND_COUNT, NINES, ONES, SOUTH, WINDS, suit, type Kind } from './tiles.js';
 
 /* ---------- 目標の形 ---------- */
@@ -350,17 +351,22 @@ export interface RunSimOptions {
   money?: number;
   /**
    * 打ち手。basic は目標の形を狙う AI（botAction。ショップではお守りと設備を並びの順に買う）、
-   * smart は点数の期待値で打つ AI（ai.ts。消耗品・延長・連荘・ショップも判断する）。既定は basic
+   * smart は点数の期待値で打つ AI（ai.ts。消耗品・延長・連荘・ショップ・お題も判断する）。既定は basic
    */
   ai?: 'basic' | 'smart';
 }
 
 export interface RunSimResult {
   runs: number;
-  /** reached[i]: i 番目の場（0: 東〜3: 北）まで進んだランの数。reached[4] は全場クリア */
-  reached: number[];
-  /** 突破した場の数の平均（0〜4） */
-  meanCleared: number;
+  cleared: number;
+  /** 4 局の合計点の和 */
+  score: number;
+  /** 記録点（クリアしたときだけ倍率を掛けた点数）の和 */
+  record: number;
+  /** お題の種類と段（「回数・段2」。mission.ts の missionKey）ごとの、掲げた数と果たした数 */
+  byMission: Record<string, { runs: number; met: number }>;
+  /** 1 ランで果たしたお題の数ごとのラン数（添字が数） */
+  metCount: number[];
   /** 局ごとの和了率 */
   winRate: number;
 }
@@ -388,7 +394,7 @@ function overrideRules(base: BaseRules, o: NonNullable<RunSimOptions['rules']>):
  * basic の AI は和了れる手ができたらすぐ和了り、親の和了では必ず連荘する（smart の AI は ai.ts を参照）。
  */
 export function simulateRuns(opts: RunSimOptions): RunSimResult {
-  const reached = Array<number>(WAVE_COUNT + 1).fill(0);
+  const out: RunSimResult = { runs: 0, cleared: 0, score: 0, record: 0, byMission: {}, metCount: [], winRate: 0 };
   let rng = createRng(mix32(opts.seed));
   let kyoku = 0;
   let won = 0;
@@ -428,8 +434,19 @@ export function simulateRuns(opts: RunSimOptions): RunSimResult {
         g = apply(g, { type: 'settle', renchan: true });
       }
     }
-    reached[g.run.phase === 'cleared' ? WAVE_COUNT : g.run.wave]++;
+    const s = runSummary(g.run);
+    out.runs++;
+    if (s.cleared) out.cleared++;
+    out.score += s.totalScore;
+    out.record += s.recordScore;
+    for (const m of s.missions) {
+      const t = (out.byMission[missionKey(m)] ??= { runs: 0, met: 0 });
+      t.runs++;
+      if (m.met) t.met++;
+    }
+    const met = s.missions.filter((m) => m.met).length;
+    out.metCount[met] = (out.metCount[met] ?? 0) + 1;
   }
-  const meanCleared = reached.reduce((a, n, w) => a + n * w, 0) / opts.runs;
-  return { runs: opts.runs, reached, meanCleared, winRate: kyoku ? won / kyoku : 0 };
+  out.winRate = kyoku ? won / kyoku : 0;
+  return out;
 }

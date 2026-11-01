@@ -5,10 +5,11 @@
  * 同じ状態から同じ手を選ぶこと、ランを最後まで遊べること、局とショップの判断の要所を確かめる。
  */
 import { describe, expect, it } from 'vitest';
-import { smartAction, smartKyokuAction, smartRenchan, smartShopAction } from '../src/ai.js';
+import { situationOf, smartAction, smartKyokuAction, smartRenchan, smartShopAction } from '../src/ai.js';
 import { apply, createGame, isFinished } from '../src/game.js';
 import { DEFAULT_BASE_RULES, modifiersFor, type CharmId, type EquipId } from '../src/items.js';
 import { defaultComposition, startKyoku, step, type KyokuState, type WallOrder } from '../src/kyoku.js';
+import { YAKUMAN_MARK, makeMission, type Mission } from '../src/mission.js';
 import { createRng, mix32, nextInt, shuffle } from '../src/rng.js';
 import { canModify, createRun, type Offer, type RunState } from '../src/run.js';
 import { botAction, simulateRuns } from '../src/sim.js';
@@ -94,31 +95,57 @@ describe('局の手', () => {
 });
 
 describe('精算', () => {
-  const lastKyoku = (score: number, target: number, honba = 0): RunState => {
-    const run = createRun(1);
-    return { ...run, round: { ...run.round, kyoku: 3, dealer: 3, score, target, honba } };
+  /** オーラス（親番）で、お題を決めたラン */
+  const lastKyoku = (missions: Mission | Mission[], score: number, dan = 0, wins = 0): RunState => {
+    const run = createRun(1, { start: { character: 'standard', dan, unlockedYaku: [] } });
+    // ボスは巡数を変えないもの（早仕舞いだと連荘の巡数の見積もりが変わる）
+    const round = { ...run.round, kyoku: 3, dealer: 3, score, wins, boss: 'seal' as const };
+    return { ...run, phase: 'kyoku', shop: null, afterShop: null, missions: [missions].flat(), round };
   };
 
-  it('場の最後の局でなければ連荘する', () => {
+  it('オーラスでなければ連荘する', () => {
     const run = createRun(1);
     expect(smartRenchan({ ...run, round: { ...run.round, kyoku: 0, dealer: 0 } }, 100)).toBe(true);
   });
 
-  it('場の最後の局で、流局の罰符で目標を割る恐れがあれば和了やめにする', () => {
-    // 1,000 点の目標に、和了で 1,100 点。罰符（1 本場で 600）とリーチ棒で割りうる
-    expect(smartRenchan(lastKyoku(0, 1000), 1100)).toBe(false);
+  it('オーラスで点数のお題を果たしたあと、流局の罰符で割る恐れがあれば和了やめにする', () => {
+    const points = makeMission('points', 1, 1);
+    // 3,000 点のお題に、和了で 3,100 点。罰符（1 本場で 600）とリーチ棒で割りうる
+    expect(smartRenchan(lastKyoku(points, 2000), 1100)).toBe(false);
     // 罰符を引いても届くなら連荘する
-    expect(smartRenchan(lastKyoku(0, 1000), 3000)).toBe(true);
-    // まだ届いていなければ連荘する（和了やめると場で負ける）
-    expect(smartRenchan(lastKyoku(0, 1000), 500)).toBe(true);
+    expect(smartRenchan(lastKyoku(points, 2000), 3000)).toBe(true);
+    // まだ届いていなければ連荘する（和了やめるとクリアにならない）
+    expect(smartRenchan(lastKyoku(points, 0), 500)).toBe(true);
   });
 
-  it('雀聖でオーラスの和了の条件（目標点の1/4以上）をまだ満たしていなければ連荘する', () => {
-    const run = createRun(1, { start: { character: 'standard', dan: 5, unlockedYaku: [] } });
-    const orasu = (score: number): RunState => ({ ...run, round: { ...run.round, kyoku: 3, dealer: 3, score } });
-    // 東場の目標点 2,000、要る和了は 500 点。400 点の和了では足りないので、罰符の恐れがあっても続ける
-    expect(smartRenchan(orasu(1900), 400)).toBe(true);
-    expect(smartRenchan(orasu(1900), 600)).toBe(false);
+  it('オーラスで回数・役のお題をまだ果たしていなければ連荘する', () => {
+    expect(smartRenchan(lastKyoku(makeMission('wins', 2, 1), 0, 0, 1), 400)).toBe(true);
+    const yaku = makeMission('yaku', 2, 1, '混一色');
+    expect(smartRenchan(lastKyoku(yaku, 0), 400, ['役牌'])).toBe(true);
+  });
+
+  it('回数か役のお題を果たしていれば、点数のお題を割る恐れがあっても連荘する（果たしたお題は減らない）', () => {
+    const both = [makeMission('points', 1, 1), makeMission('wins', 1, 1.5)];
+    expect(smartRenchan(lastKyoku(both, 2000, 0, 1), 1100)).toBe(true);
+  });
+
+  it('雀聖でオーラスの和了の条件（2,000 点以上）をまだ満たしていなければ連荘する', () => {
+    const run = lastKyoku(makeMission('points', 1, 1), 99999, 5);
+    expect(smartRenchan(run, 1900)).toBe(true);
+    // 条件もお題も満たしていれば、連荘で巡が減っても続ける理由はない（巡は本場ごとに 2 減る。12 巡の 1 本場は 10 巡）
+    expect(smartRenchan(run, 2000)).toBe(true);
+    expect(smartRenchan({ ...run, round: { ...run.round, honba: 3 } }, 2000)).toBe(false);
+  });
+});
+
+describe('お題の見方', () => {
+  it('3 つのお題の進み具合を種類ごとに持ち、果たした回数・役のお題は倍率に数える', () => {
+    const run = createRun(1);
+    const missions = [makeMission('wins', 2, 1), makeMission('points', 2, 1.5), makeMission('yaku', 5, 2, YAKUMAN_MARK)];
+    const sit = situationOf({ ...run, missions, round: { ...run.round, wins: 1, score: 1000 } });
+    expect(sit).toMatchObject({ need: 5000, pointsTimes: 1.5, winsNeed: 2, winsTimes: 1, yaku: YAKUMAN_MARK, yakuTimes: 2, metTimes: 0 });
+    const done = situationOf({ ...run, missions, round: { ...run.round, wins: 3, score: 1000 } });
+    expect(done).toMatchObject({ winsNeed: 0, metTimes: 1 });
   });
 });
 
@@ -171,7 +198,9 @@ describe('ラン', () => {
       g = apply(g, smartAction(g));
     }
     const a = simulateRuns({ runs: 2, seed: 4, ai: 'smart', buy: true });
-    expect(a.reached.reduce((x, y) => x + y, 0)).toBe(2);
+    expect(a.runs).toBe(2);
+    // お題は 1 ランに 3 つ
+    expect(Object.values(a.byMission).reduce((x, t) => x + t.runs, 0)).toBe(6);
     expect(simulateRuns({ runs: 2, seed: 4, ai: 'smart', buy: true })).toEqual(a);
   });
 });

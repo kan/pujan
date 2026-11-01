@@ -8,7 +8,12 @@
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
-import { ENGINE_VERSION, WIND_NAMES, aggregate, analyzeRun, startLabel } from '../../engine/dist/index.js';
+import { ENGINE_VERSION, aggregate, analyzeRun, startLabel } from '../../engine/dist/index.js';
+
+/** 東風戦になった版。これより前は 4 場の形で、数えた結果（runs.stats）の形が違う */
+const FIRST_TONPU_VERSION = 11;
+/** 4 場の形の場の名前（前の形の感想を読むときだけ使う） */
+const WIND_NAMES = ['東', '南', '西', '北'];
 
 const { positionals, values } = parseArgs({
   allowPositionals: true,
@@ -70,6 +75,11 @@ function* pages(sql) {
 function stats() {
   const version = values.version === undefined ? ENGINE_VERSION : Number(values.version);
   if (!Number.isInteger(version) || version < 1) throw new Error('--version は 1 以上の整数');
+  if (version < FIRST_TONPU_VERSION) {
+    throw new Error(
+      `ルールの版 ${version} は 4 場の形で、集計の形が違う。版 10 までの集計は、東風戦にする前のコード（git の 85379f9）で読む`,
+    );
+  }
   // 終わっていないランのうち、その ID のいちばん新しいもの以外は、始めて捨てたラン
   const [counts] = query(`
     SELECT COUNT(*) AS started,
@@ -97,18 +107,48 @@ function stats() {
   console.log(`始めたラン ${counts.started}・終わったラン ${counts.finished}・捨てたラン ${counts.abandoned}・遊んだ ID ${counts.players}`);
   console.log(`集計したラン ${t.runs}（数えた結果も操作ログもない・再生できないもの ${counts.finished - t.runs} を除く）`);
 
+  /** ラン数・クリア数・クリア率・合計点の平均の表（多い順） */
+  const clearTable = (title, name, by, order = (a, b) => b[1].runs - a[1].runs) =>
+    table(
+      title,
+      [name, 'ラン', 'クリア', 'クリア率', '合計点の平均'],
+      Object.entries(by)
+        .sort(order)
+        .map(([k, s]) => [k, s.runs, s.cleared, pct(s.cleared, s.runs), Math.round(s.score / s.runs)]),
+    );
+  clearTable('雀士と段位', '雀士・段位', t.byStart);
+  clearTable('東4局のボス', 'ボス', t.byBoss);
+  /** お題ごとの、掲げた数・果たした数・果たした割合 */
+  const missionTable = (title, name, by) =>
+    table(
+      title,
+      [name, '掲げた', '果たした', '果たした割合'],
+      Object.entries(by)
+        .sort((a, b) => a[0].localeCompare(b[0], 'ja'))
+        .map(([k, s]) => [k, s.runs, s.cleared, pct(s.cleared, s.runs)]),
+    );
+  missionTable('お題の倍率の枠', '倍率', t.byTimes);
+  missionTable('お題の種類と段', 'お題', t.byMission);
   table(
-    '雀士と段位',
-    ['雀士・段位', 'ラン', '全場クリア', 'クリア率', '突破した場の平均'],
-    Object.entries(t.byStart)
-      .sort((a, b) => b[1].runs - a[1].runs)
-      .map(([k, s]) => [k, s.runs, s.cleared, pct(s.cleared, s.runs), (s.waves / s.runs).toFixed(2)]),
+    '1 ランで果たしたお題の数',
+    ['数', 'ラン', '割合'],
+    Object.entries(t.byMetCount)
+      .sort((a, b) => Number(a[0]) - Number(b[0]))
+      .map(([k, n]) => [k, n, pct(n, t.runs)]),
   );
-  table('負けた場', ['場', 'ラン', '割合'], WIND_NAMES.map((w, i) => [w, t.lostAt[i], pct(t.lostAt[i], t.runs)]));
+
+  // 終わっていないランが、どの局まで精算したところで止まっているか（途中経過。docs/SPEC.md §5.3）。
+  // その ID のいちばん新しいランは、まだ遊んでいる途中かもしれない
+  const stopped = query(`
+    SELECT COALESCE(last_kyoku, 0) AS kyoku, COUNT(*) AS runs, COALESCE(SUM(n = 1), 0) AS latest
+    FROM (SELECT last_kyoku, finished_at,
+            ROW_NUMBER() OVER (PARTITION BY account_id ORDER BY started_at DESC, id DESC) AS n
+          FROM runs WHERE engine_version = ${version})
+    WHERE finished_at IS NULL GROUP BY kyoku ORDER BY kyoku`);
   table(
-    '負けた場のボス',
-    ['ボス', 'ラン'],
-    Object.entries(t.lostBoss).sort((a, b) => b[1] - a[1]),
+    '終わっていないランが止まった局',
+    ['精算した局の数（連荘の本場を含む）', 'ラン', 'うち、その ID のいちばん新しいラン'],
+    stopped.map((r) => [r.kyoku, r.runs, r.latest]),
   );
   console.log(`\n## 局\n局 ${t.kyoku}・和了 ${t.wins}・和了率 ${pct(t.wins, t.kyoku)}・巡を延ばした 祝儀で ${t.extends} 回／延長札で ${t.extendTickets} 回`);
   table(
@@ -141,7 +181,7 @@ function feedback() {
   const [{ total }] = query('SELECT COUNT(*) AS total FROM feedback');
   // ID は全部は出さない。どの感想が同じ人のものかは、ID の先頭 8 文字で見分ける（実行をまたいでも同じ）
   const rows = query(`
-    SELECT created_at, body, character, dan, wave, finished, score, engine_version, app_version,
+    SELECT created_at, body, character, dan, wave, kyoku, missions, finished, cleared, score, engine_version, app_version,
       substr(account_id, 1, 8) AS who
     FROM feedback ORDER BY created_at DESC LIMIT ${limit}`);
   console.log(`# 感想（${values.env}、全 ${total} 件のうち新しい ${rows.length} 件）`);
@@ -152,11 +192,15 @@ function feedback() {
   }
 }
 
-/** 感想に添えられたランの様子（項目が欠けていれば、分かるところだけ） */
+/** 感想に添えられたランの様子（項目が欠けていれば、分かるところだけ）。wave があるのは 4 場の形のときの感想 */
 function runText(r) {
   const parts = [];
   if (r.character !== null && r.dan !== null) parts.push(startLabel(r));
-  if (r.wave !== null && r.finished !== null) {
+  if (r.missions !== null) parts.push(r.missions);
+  if (r.kyoku !== null && r.finished !== null) {
+    if (r.finished) parts.push(r.cleared ? 'クリア' : '未達');
+    else parts.push(r.kyoku ? `東${r.kyoku}局まで` : '東1局の前');
+  } else if (r.wave !== null && r.finished !== null) {
     if (r.finished) parts.push(r.wave >= WIND_NAMES.length ? '全場クリア' : `${r.wave}場突破で終了`);
     else parts.push(`${WIND_NAMES[r.wave] ?? r.wave}場`);
   }

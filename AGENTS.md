@@ -79,11 +79,11 @@ GitHub Actions（`.github/workflows/ci.yml`）が push ごとに、engine のビ
 ```bash
 npm run sim -w engine -- deal                 # 配牌 5 枚で形ができる確率
 npm run sim -w engine -- target --hold 0      # 目標の形を狙う AI の 12 巡の和了率
-npm run sim -w engine -- runs --runs 100      # アイテムごとに、ランでどの場まで進めたか
-npm run sim -w engine -- starts --runs 40     # 雀士と段位ごとに、ランでどの場まで進めたか
+npm run sim -w engine -- runs --runs 100      # アイテムごとに、クリア率・記録点・果たしたお題の数
+npm run sim -w engine -- starts --runs 40     # 雀士と段位ごとに、クリア率・記録点・お題ごとの果たした割合
 ```
 
-オプションは `engine/scripts/sim.mjs` の先頭にある。`runs` は 1 アイテム 100 ランで数十秒、`starts` は 30 通り × 40 ランで 20 分ほどかかる。
+オプションは `engine/scripts/sim.mjs` の先頭にある。`starts` は 30 通り（雀士 5 × 段位 6）× 40 ランで、`--jobs 4` なら 1〜2 分かかる。
 
 - `--ai smart` で、点数の期待値で打つ AI（`engine/src/ai.ts`）に替える。役満・連荘・消耗品・ショップの品を考えるので、雀士とアイテムの強さはこちらで見る（既定の `basic` は目標の形を狙うだけの AI で、前の結果と比べるために残している）。1 ランあたり basic の 1.3 倍ほどかかる
 - `--jobs N` で N 個のワーカーで並べて回す（結果は同じ）。ほかの重い処理と重ならないように、CPU の数より少なくする

@@ -75,11 +75,6 @@ export const useGameStore = defineStore('game', () => {
   }
   /** 終わったランで新しく解禁されたもの（ラン終了のシートに出す。開き直したあとは null） */
   const unlocks = shallowRef<NewUnlocks | null>(null);
-  /**
-   * 場の案内や場の結果を閉じたときの操作の数。操作が進めば古くなるので、次の場ではまた出る。
-   * 保存はしない（開き直したときに、まだ何もしていなければもう一度出る）
-   */
-  const dismissedAt = ref(-1);
 
   const run = computed(() => game.value.run);
   const kyoku = computed(() => game.value.kyoku);
@@ -87,28 +82,6 @@ export const useGameStore = defineStore('game', () => {
   const shownKyoku = computed(() => kyoku.value ?? game.value.previous);
   /** 牌を選んで操作できる（ツモ牌があり、局が終わっていない） */
   const acting = computed(() => !!kyoku.value && isActing(kyoku.value));
-
-  const lastAction = computed(() => log.value.actions.at(-1));
-  const dismissed = computed(() => dismissedAt.value === log.value.actions.length);
-
-  /** 場の案内: 場の最初の局を、まだ何もせずに始めるところ（ランの始めか、ショップを出て次の場に入った直後） */
-  const showIntro = computed(() => {
-    const r = run.value;
-    const entered = !lastAction.value || lastAction.value.type === 'leave';
-    const fresh = r.phase === 'kyoku' && r.round.kyoku === 0 && r.round.honba === 0 && !r.round.log.length;
-    return entered && fresh && !dismissed.value;
-  });
-
-  /** 場の結果（突破）: 場を突破した精算の直後。ショップで何かしたあとは出さない */
-  const showWaveResult = computed(
-    () =>
-      run.value.phase === 'shop' && run.value.afterShop === 'nextWave' && lastAction.value?.type === 'settle' && !dismissed.value,
-  );
-
-  /** 場の案内・場の結果を閉じる */
-  function dismiss() {
-    dismissedAt.value = log.value.actions.length;
-  }
 
   function selectDefault() {
     selection.value = acting.value ? { zone: 'drawn', index: 0 } : null;
@@ -143,7 +116,6 @@ export const useGameStore = defineStore('game', () => {
       game.value = createGame(seed, { start });
       runId.value = usable?.id ?? null;
       unlocks.value = null;
-      dismissedAt.value = -1;
       account.clearSubmission();
       saveRunLog(storage, log.value);
       saveRunId(storage, runId.value);
@@ -189,10 +161,14 @@ export const useGameStore = defineStore('game', () => {
     log.value = { ...log.value, actions: [...log.value.actions, action] };
     saveRunLog(storage, log.value);
     selectDefault();
-    // ランが終わった（ラン終了・全場クリア）: 解禁を数え、記録を送る
+    // ランが終わった（未達・クリア）: 解禁を数え、記録を送る
     if (isFinished(game.value)) {
       unlocks.value = account.countFinishedRun(game.value.run);
       void account.submit(runId.value, log.value);
+    } else if (action.type === 'settle') {
+      // 局を終えた途中経過を送る（どこまで遊んだかの集計に使う。docs/SPEC.md §5.3）。
+      // 局の記録は精算のたびに 1 行増える（連荘の本場も 1 行）ので、その行数が精算した局の数
+      void account.reportProgress(runId.value, game.value.run.round.log.length);
     }
     return true;
   }
@@ -268,8 +244,6 @@ export const useGameStore = defineStore('game', () => {
     outdated,
     dismissOutdated,
     unlocks,
-    showIntro,
-    showWaveResult,
     acting,
     canHold,
     canRiichiSelected,
@@ -280,7 +254,6 @@ export const useGameStore = defineStore('game', () => {
     init,
     startRun,
     act,
-    dismiss,
     tapTile,
     tapSlot,
     holdSelected,

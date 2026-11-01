@@ -6,12 +6,16 @@ import {
   createGame,
   DEFAULT_START,
   isFinished,
+  makeMission,
   newLog,
+  replay,
+  runSummary,
   weekOf,
   type GameAction,
   type Progress,
   type RunLog,
   type RunStart,
+  type RunSummary,
 } from '@pujan/engine';
 import { botAction } from '../../engine/src/sim';
 import { call, get, idIssuer, newUser, ORIGIN, post, resetDb, type TestUser } from './helpers';
@@ -22,7 +26,7 @@ import { UNFINISHED_KEPT } from '../src/lib/runs';
 
 beforeEach(resetDb);
 
-/** そのシードのランを AI に終わりまで遊ばせた操作ログ（ショップでは何も買わない） */
+/** そのシードのランを AI に終わりまで遊ばせた操作ログ（お題は前の枠、ショップでは何も買わない） */
 function playedLog(seed: number, start: RunStart = DEFAULT_START): RunLog {
   const log = newLog(seed, start);
   let g = createGame(seed, { start });
@@ -99,14 +103,39 @@ describe('ランの記録', () => {
     const user = await newUser({ name: '雀士A' });
     const { log, res } = await playRun(user);
     expect(res.status).toBe(200);
-    const body = (await res.json()) as { wavesCleared: number; totalScore: number; week: string; best: boolean };
+    const body = (await res.json()) as RunSummary & { week: string; best: boolean };
     expect(body.best).toBe(true);
     expect(body.week).toBe(weekOf(Date.now()));
-    const row = await env.DB.prepare('SELECT waves_cleared, total_score FROM weekly_best WHERE account_id = ?')
+    // 成績はログを再生した結果から出す
+    const s = runSummary(replay(log).run);
+    expect(body).toMatchObject(s);
+    const row = await env.DB.prepare('SELECT missions, cleared, total_score, record_score FROM weekly_best WHERE account_id = ?')
       .bind(user.id)
-      .first<{ waves_cleared: number; total_score: number }>();
-    expect(row).toEqual({ waves_cleared: body.wavesCleared, total_score: body.totalScore });
+      .first<{ missions: string; cleared: number; total_score: number; record_score: number }>();
+    expect(row).toEqual({ missions: JSON.stringify(s.missions), cleared: Number(s.cleared), total_score: s.totalScore, record_score: s.recordScore });
     expect(log.actions.length).toBeGreaterThan(10);
+  });
+
+  it('局を終えた途中経過を残す。終わったラン・ほかの ID のラン・形の違う本文は受け付けない', async () => {
+    const user = await newUser();
+    const other = await newUser();
+    const started = (await (await post('/api/runs', user)).json()) as Started;
+    const lastKyoku = () =>
+      env.DB.prepare('SELECT last_kyoku, last_kyoku_at IS NOT NULL AS at FROM runs WHERE id = ?')
+        .bind(started.id)
+        .first<{ last_kyoku: number | null; at: number }>();
+    expect(await lastKyoku()).toEqual({ last_kyoku: null, at: 0 });
+    expect((await post(`/api/runs/${started.id}/progress`, user, { kyoku: 2 })).status).toBe(200);
+    // 届く順が前後しても戻さない
+    expect((await post(`/api/runs/${started.id}/progress`, user, { kyoku: 1 })).status).toBe(200);
+    expect(await lastKyoku()).toEqual({ last_kyoku: 2, at: 1 });
+    expect((await post(`/api/runs/${started.id}/progress`, other, { kyoku: 3 })).status).toBe(404);
+    for (const bad of [{ kyoku: 0 }, { kyoku: 'x' }, {}]) {
+      expect((await post(`/api/runs/${started.id}/progress`, user, bad)).status).toBe(400);
+    }
+    await post(`/api/runs/${started.id}/finish`, user, { log: playedLog(started.seed) });
+    expect((await post(`/api/runs/${started.id}/progress`, user, { kyoku: 9 })).status).toBe(404);
+    expect((await lastKyoku())?.last_kyoku).toBe(2);
   });
 
   it('同じ記録の再送は成績を変えずに duplicate として答える', async () => {
@@ -207,7 +236,7 @@ describe('引き継ぎ（雀士・段位・役の解禁）', () => {
 
   it('はじめは何も解禁されていない。まだ選べない雀士や段位では始められない', async () => {
     const user = await newUser();
-    expect(await me(user)).toEqual({ yakuWon: [], bestWaves: 0, danCleared: -1, characters: [] });
+    expect(await me(user)).toEqual({ yakuWon: [], bestTimes: 0, bestWaves: 0, danCleared: -1, characters: [] });
     expect((await post('/api/runs', user, { character: 'speed', dan: 0 })).status).toBe(403);
     expect((await post('/api/runs', user, { character: 'standard', dan: 1 })).status).toBe(403);
     expect((await post('/api/runs', user, { character: 'standard', dan: 'x' })).status).toBe(400);
@@ -218,9 +247,11 @@ describe('引き継ぎ（雀士・段位・役の解禁）', () => {
   it('記録したランで解禁が進み、次のランの始めの条件に入る', async () => {
     const user = await newUser();
     const { res } = await playRun(user);
-    const body = (await res.json()) as { progress: Progress; wavesCleared: number };
+    const body = (await res.json()) as RunSummary & { progress: Progress };
     expect(body.progress.yakuWon.length).toBeGreaterThan(0);
-    expect(body.progress.bestWaves).toBe(body.wavesCleared);
+    const metTimes = body.missions.filter((m) => m.met).map((m) => m.times);
+    expect(body.progress.bestTimes).toBe(body.cleared ? Math.max(...metTimes) : 0);
+    expect(body.progress.bestWaves).toBe(0);
     expect(await me(user)).toEqual(body.progress);
     const next = (await (await post('/api/runs', user)).json()) as Started;
     expect(next.start.unlockedYaku).toEqual(body.progress.yakuWon);
@@ -257,19 +288,22 @@ describe('引き継ぎ（雀士・段位・役の解禁）', () => {
 });
 
 describe('週ごとのランキング', () => {
-  async function putBest(name: string | undefined, waves: number, score: number, dan = 0) {
+  /** 倍率 ×1 のお題 1 つの記録（合計点と記録点が同じになる） */
+  const missionsOf = (met: boolean) => [{ ...makeMission('wins', 2, 1), met }];
+  async function putBest(name: string | undefined, cleared: boolean, record: number, dan = 0) {
     const user = await newUser({ name });
     await env.DB.prepare(
-      'INSERT INTO weekly_best (week, account_id, run_id, dan, waves_cleared, total_score, finished_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
+      `INSERT INTO weekly_best (week, account_id, run_id, dan, missions, cleared, total_score, record_score, waves_cleared, finished_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?)`,
     )
-      .bind(weekOf(Date.now()), user.id, crypto.randomUUID(), dan, waves, score, Date.now())
+      .bind(weekOf(Date.now()), user.id, crypto.randomUUID(), dan, JSON.stringify(missionsOf(cleared)), Number(cleared), record, record, Date.now())
       .run();
     return user;
   }
 
-  it('段位が高いほうが上（突破した場の数より先に比べる）', async () => {
-    const a = await putBest('雀士A', 4, 50000, 0);
-    await putBest('雀士B', 1, 500, 2);
+  it('段位が高いほうが上（クリアしたかより先に比べる）', async () => {
+    const a = await putBest('雀士A', true, 50000, 0);
+    await putBest('雀士B', false, 500, 2);
     const ranking = (await (await get('/api/rankings/weekly', a)).json()) as {
       entries: { rank: number; name: string; dan: number }[];
       me: { rank: number };
@@ -281,12 +315,12 @@ describe('週ごとのランキング', () => {
     expect(ranking.me.rank).toBe(2);
   });
 
-  it('突破した場の数 → 合計点の順。同じ成績は同じ順位。名前のない ID は載らないが本人には成績を返す', async () => {
-    const a = await putBest('雀士A', 2, 3000);
-    await putBest('雀士B', 3, 1000);
-    await putBest('雀士C', 2, 3000);
-    await putBest('雀士D', 2, 2000);
-    const anon = await putBest(undefined, 4, 99999);
+  it('クリアしたか → 記録点の順。同じ成績は同じ順位。名前のない ID は載らないが本人には成績を返す', async () => {
+    const a = await putBest('雀士A', false, 3000);
+    await putBest('雀士B', true, 1000);
+    await putBest('雀士C', false, 3000);
+    await putBest('雀士D', false, 2000);
+    const anon = await putBest(undefined, true, 99999);
 
     const ranking = (await (await get('/api/rankings/weekly', a)).json()) as {
       entries: { rank: number; name: string; isMe: boolean }[];
@@ -301,8 +335,40 @@ describe('週ごとのランキング', () => {
     expect(ranking.entries.find((e) => e.isMe)?.name).toBe('雀士A');
     expect(ranking.me?.rank).toBe(2);
 
-    const mine = (await (await get('/api/rankings/weekly', anon)).json()) as { me: { rank: number | null; wavesCleared: number } };
-    expect(mine.me).toEqual({ rank: null, dan: 0, character: 'standard', wavesCleared: 4, totalScore: 99999 });
+    const mine = (await (await get('/api/rankings/weekly', anon)).json()) as { me: unknown };
+    expect(mine.me).toEqual({
+      rank: null,
+      dan: 0,
+      character: 'standard',
+      missions: missionsOf(true),
+      cleared: true,
+      times: 1,
+      totalScore: 99999,
+      recordScore: 99999,
+    });
+  });
+
+  it('4 場の形で記録した行は、お題なしで、段位によらず東風戦の記録の下に並び、東風戦で記録すれば置き換わる', async () => {
+    const legacy = async (name: string, dan: number) => {
+      const user = await newUser({ name });
+      await env.DB.prepare(
+        'INSERT INTO weekly_best (week, account_id, run_id, dan, waves_cleared, total_score, finished_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
+      )
+        .bind(weekOf(Date.now()), user.id, crypto.randomUUID(), dan, 4, 50000, Date.now())
+        .run();
+      return user;
+    };
+    const old = await legacy('雀士A', 4);
+    await putBest('雀士B', false, -300, 0);
+    const ranking = (await (await get('/api/rankings/weekly', old)).json()) as { entries: { name: string }[] };
+    expect(ranking.entries.map((e) => e.name)).toEqual(['雀士B', '雀士A']);
+    expect(ranking.entries[1]).toMatchObject({ missions: null, cleared: false, totalScore: 50000, recordScore: 0 });
+    // 同じ ID が東風戦で記録すると、段位が低くても置き換わる
+    const replaced = await legacy('雀士C', 5);
+    const { res } = await playRun(replaced);
+    expect(((await res.json()) as { best: boolean }).best).toBe(true);
+    const row = await env.DB.prepare('SELECT missions FROM weekly_best WHERE account_id = ?').bind(replaced.id).first<{ missions: string | null }>();
+    expect(row?.missions).not.toBeNull();
   });
 
   it('週は月曜の日付で指定する', async () => {
@@ -317,8 +383,10 @@ describe('感想', () => {
     runId: null,
     character: 'standard',
     dan: 0,
-    wave: 1,
+    kyoku: 1,
+    missions: '×1 和了 2 回（済）・×1.5 合計 6,000 点以上・×2 清一色で和了る',
     finished: false,
+    cleared: null,
     score: 1200,
     engineVersion: 2,
     appVersion: '0.0.1+abc',
@@ -329,7 +397,22 @@ describe('感想', () => {
     const res = await post('/api/feedback', user, { body: '  役満が出ない  ', context });
     expect(res.status).toBe(201);
     const row = await env.DB.prepare('SELECT * FROM feedback WHERE account_id = ?').bind(user.id).first<Record<string, unknown>>();
-    expect(row).toMatchObject({ body: '役満が出ない', character: 'standard', dan: 0, wave: 1, finished: 0, score: 1200, app_version: '0.0.1+abc' });
+    expect(row).toMatchObject({
+      body: '役満が出ない',
+      character: 'standard',
+      dan: 0,
+      kyoku: 1,
+      missions: context.missions,
+      finished: 0,
+      cleared: null,
+      wave: null,
+      score: 1200,
+      app_version: '0.0.1+abc',
+    });
+    const done = await post('/api/feedback', user, { body: '終わった', context: { ...context, finished: true, cleared: true, kyoku: 4 } });
+    expect(done.status).toBe(201);
+    const last = await env.DB.prepare('SELECT cleared FROM feedback WHERE body = ?').bind('終わった').first<{ cleared: number }>();
+    expect(last?.cleared).toBe(1);
     // ランの様子はなくてもよい
     expect((await post('/api/feedback', user, { body: '楽しい' })).status).toBe(201);
   });

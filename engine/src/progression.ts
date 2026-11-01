@@ -2,38 +2,34 @@
  * 引き継ぎ（docs/SPEC.md §4.6）: 雀士、段位、役の解禁。強さではなく選択肢を増やす。
  *
  * - 雀士: 始めの条件（保留枠・ネクスト・持ち物・祝儀）が違う
- * - 段位: 初段〜雀聖。上がるほど縛りが重なる。その段位で全場クリアすると次が解禁される
+ * - 段位: 初段〜雀聖。上がるほど縛りが重なる。その段位でクリアすると次が解禁される
  * - 役の解禁: その役で一度和了ると、その役の巻物（と、unlockYaku を持つお守り）がショップに並ぶ
  *
  * ランの始めの条件（RunStart）は操作ログに入り、サーバーが同じ条件で再生して確かめる。
  * 解禁の状態（Progress）は、サーバーで確かめたランから progressAfter で更新する。
  */
 import { CHARMS, DEFAULT_BASE_RULES, SCROLL_YAKU, type BaseRules, type CharmId, type EquipId } from './items.js';
+import { MAX_MISSION_TIER, MISSION_SLOTS, YAKUMAN_MARK } from './mission.js';
 import { runSummary, type RunState } from './run.js';
 
-/** 場の目標点（初段） */
-export const BASE_WAVE_TARGETS: readonly number[] = [1000, 2000, 4000, 8000];
 /** 始めの祝儀（標準の雀士・初段） */
 const BASE_START_MONEY = 4;
 /** ショップの品の数（段位の縛りがないとき） */
 const BASE_SHOP_SIZE = 3;
-/** 場を突破したときの祝儀（段位の縛りがないとき） */
-const BASE_CLEAR_BONUS = 3;
-
-/**
- * 役満で和了ったときに、和了った役の一覧（yakuWon）へ役の名前と一緒に入れる印。
- * 役満の名前を並べた一覧を持たずに、雀士「ねこ」（役満型）の解禁を判定するため
- */
-export const YAKUMAN_MARK = '役満';
 
 /* ---------- 解禁の状態 ---------- */
 
 export interface Progress {
   /** 一度でも和了った役の名前（ボーナスの翻・役満を含む。役満では YAKUMAN_MARK も入る） */
   yakuWon: string[];
-  /** 突破した場の数のいちばん多い記録（0〜4。段位は問わない） */
+  /** クリアしたランで果たしたお題の倍率のいちばん高い記録（合計ではなくお題 1 つの倍率。0 はまだ。段位は問わない） */
+  bestTimes: number;
+  /**
+   * 4 場の形で突破した場の数のいちばん多い記録（0〜4）。東風戦では更新しない。
+   * 雀士の一覧を持たない前の記録で、条件を満たしている雀士を求めるときだけ読む（withCharacters）
+   */
   bestWaves: number;
-  /** 全場クリアしたいちばん高い段位（-1 はまだ） */
+  /** クリアしたいちばん高い段位（-1 はまだ。4 場の形の全場クリアも含む） */
   danCleared: number;
   /**
    * 解禁した雀士（標準の雀士は入れない。最初から選べる）。条件を満たしても、1 回のランで解禁するのは 1 人まで
@@ -42,24 +38,28 @@ export interface Progress {
   characters: CharacterId[];
 }
 
-export const EMPTY_PROGRESS: Progress = { yakuWon: [], bestWaves: 0, danCleared: -1, characters: [] };
+export const EMPTY_PROGRESS: Progress = { yakuWon: [], bestTimes: 0, bestWaves: 0, danCleared: -1, characters: [] };
 
-/** 雀士の一覧（characters）を持つ前の解禁の状態。端末と D1 に残っている */
-export type LegacyProgress = Omit<Progress, 'characters'> & { characters?: CharacterId[] };
+/** 雀士の一覧（characters）とお題の記録（bestTimes）を持つ前の解禁の状態。端末と D1 に残っている */
+export type LegacyProgress = Omit<Progress, 'characters' | 'bestTimes'> & { characters?: CharacterId[]; bestTimes?: number };
 
 /**
- * 雀士の一覧を持たない記録を、今の形にする。1 ランで 1 人の規則より前に解禁されていた雀士（条件を満たしている雀士）は
- * 全員そのまま解禁済みにする（選べていた雀士を選べなくしないため）
+ * 前の形の記録を、今の形にする。雀士の一覧を持たない記録では、1 ランで 1 人の規則より前に解禁されていた雀士
+ * （4 場の形の条件を満たしている雀士）を全員そのまま解禁済みにする（選べていた雀士を選べなくしないため）
  */
 export function withCharacters(p: LegacyProgress): Progress {
-  const list = p.characters ?? CHARACTERS.filter((c) => c.condition(p)).map((c) => c.id);
+  const full = { ...p, bestTimes: p.bestTimes ?? 0 };
+  const list = p.characters ?? CHARACTERS.filter((c) => (c.legacyCondition ?? c.condition)(full)).map((c) => c.id);
   // 重なりと標準の雀士（一覧に入れない）を除き、ID の順にそろえる（端末に保存したものは信頼できない入力）
-  return { ...p, characters: [...new Set(list)].filter((id) => id !== DEFAULT_START.character).sort() };
+  return {
+    ...full,
+    characters: [...new Set(list)].filter((id) => id !== DEFAULT_START.character).sort(),
+  };
 }
 
 /**
  * 端末に保存した解禁の状態を読む。信頼できない入力なので形を確かめ、正しくなければ null。
- * 雀士の一覧がない前の形は withCharacters で今の形にする
+ * 前の形（雀士の一覧・お題の記録がない）は withCharacters で今の形にする
  */
 export function parseProgress(v: unknown): Progress | null {
   const p = v as Partial<Progress> | null;
@@ -69,6 +69,9 @@ export function parseProgress(v: unknown): Progress | null {
     p.yakuWon.every((y) => typeof y === 'string') &&
     Number.isInteger(p.bestWaves) &&
     Number.isInteger(p.danCleared) &&
+    // 倍率の値はあとで調整しうるので、枠の値と一致するかではなく、0 から最大の倍率までに収まるかで見る
+    (p.bestTimes === undefined ||
+      (typeof p.bestTimes === 'number' && p.bestTimes >= 0 && p.bestTimes <= Math.max(...MISSION_SLOTS.map((s) => s.times)))) &&
     (p.characters === undefined ||
       (Array.isArray(p.characters) && p.characters.every((id) => !!characterOf(id))));
   return ok ? withCharacters(p as LegacyProgress) : null;
@@ -93,6 +96,10 @@ export interface CharacterDef {
   unlockText: string;
   /** 解禁の条件を満たしたか（累計の記録で見る。解禁は progressAfter が 1 ランで 1 人ずつ行う） */
   condition: (p: Omit<Progress, 'characters'>) => boolean;
+  /**
+   * 4 場の形での解禁の条件（condition と違うときだけ書く）。雀士の一覧を持たない前の記録を読むときだけ使う（withCharacters）
+   */
+  legacyCondition?: (p: LegacyProgress) => boolean;
   /** 1 局の巡数の増減（段位の増減に足す） */
   turnsDelta?: number;
 }
@@ -117,8 +124,9 @@ export const CHARACTERS: readonly CharacterDef[] = [
     charms: [],
     equipment: [],
     money: BASE_START_MONEY,
-    unlockText: '東場を突破する',
-    condition: (p) => p.bestWaves >= 1,
+    unlockText: 'クリアする',
+    condition: (p) => p.bestTimes >= 1,
+    legacyCondition: (p) => p.bestWaves >= 1,
   },
   {
     id: 'menzen',
@@ -141,8 +149,9 @@ export const CHARACTERS: readonly CharacterDef[] = [
     charms: ['oyaji'],
     equipment: [],
     money: 2,
-    unlockText: '南場を突破する',
-    condition: (p) => p.bestWaves >= 2,
+    unlockText: '×1.5 以上のお題を果たしてクリアする',
+    condition: (p) => p.bestTimes >= 1.5,
+    legacyCondition: (p) => p.bestWaves >= 2,
   },
   {
     id: 'yakuman',
@@ -153,8 +162,9 @@ export const CHARACTERS: readonly CharacterDef[] = [
     equipment: ['joker'],
     money: 0,
     // ほかの雀士より強いボーナスの雀士なので、解禁を遅くする
-    unlockText: '全場クリアし、役満でも和了る',
-    condition: (p) => p.danCleared >= 0 && p.yakuWon.includes(YAKUMAN_MARK),
+    unlockText: '×2 のお題を果たしてクリアし、役満でも和了る',
+    condition: (p) => p.bestTimes >= 2 && p.yakuWon.includes(YAKUMAN_MARK),
+    legacyCondition: (p) => p.danCleared >= 0 && p.yakuWon.includes(YAKUMAN_MARK),
   },
 ];
 
@@ -182,44 +192,45 @@ export interface DanDef {
   description: string;
   /*
    * 縛りの中身。ある段位のランには、その段位までのすべての縛りが重なる。
-   * targetTimes と shopSize は上の段位の値で置き換え、turnsDelta と clearBonusDelta は足す
+   * missionShift・missionSlots・shopSize・orasuWin は上の段位の値で置き換え、turnsDelta と winMoneyDelta は足す
    */
-  targetTimes?: number;
+  /** お題の段の上乗せ（mission.ts の MISSION_SLOTS の段に足す） */
+  missionShift?: number;
+  /** お題の数（MISSION_SLOTS の後ろから取る。倍率の低い枠から除く） */
+  missionSlots?: number;
   turnsDelta?: number;
-  /** 場を突破したときの祝儀（clear）の増減 */
-  clearBonusDelta?: number;
+  /** 和了の祝儀の増減 */
+  winMoneyDelta?: number;
   shopSize?: number;
   /** ショップで福引きを回せない（福引き券ももらえない）。上の段位にも引き継ぐ */
   noGacha?: boolean;
-  /**
-   * オーラス（場の 4 局目）で和了らないと場を突破できない。値は、その和了に要る点数の場の目標点に対する割合
-   * （0 なら点数を問わない）。上の段位の値で置き換える
-   */
+  /** オーラス（東 4 局）で和了らないとクリアにならない。値はその和了に要る点数（0 なら点数を問わない） */
   orasuWin?: number;
 }
 
 export const DANS: readonly DanDef[] = [
   { level: 0, name: '初段', description: '縛りなし' },
-  { level: 1, name: '二段', description: '場の目標点が1.5倍', targetTimes: 1.5 },
-  { level: 2, name: '三段', description: '場を突破したときの祝儀が1少ない', clearBonusDelta: -1 },
+  { level: 1, name: '二段', description: 'お題が1段重い', missionShift: 1 },
+  { level: 2, name: '三段', description: '和了の祝儀が1少ない', winMoneyDelta: -1 },
   // 雀士によって巡数が違う（かめは＋3）ので、何巡かではなく増減で書く
   { level: 3, name: '四段', description: '1局の巡数が1少ない', turnsDelta: -1 },
-  // 目標点に早く届いても、オーラスまで手を抜けなくする（GitHub issue #9）
+  // お題を早く果たしても、オーラスまで手を抜けなくする（GitHub issue #9）
   {
     level: 4,
     name: '五段',
-    description: '場の目標点が2倍（二段の1.5倍の代わり）。オーラスで和了らないと場を突破できない',
-    targetTimes: 2,
+    description: 'お題が2段重い（二段の1段の代わり）。オーラスで和了らないとクリアにならない',
+    missionShift: 2,
     orasuWin: 0,
   },
-  // 福引きがあると品の数の縛りが弱まる（sim で全場クリア 25%→43%）ので、福引きも止める
+  // 福引きがあると品の数の縛りが弱まる（4 場の形の sim で全場クリア 25%→43%）ので、福引きも止める
   {
     level: 5,
     name: '雀聖',
-    description: 'ショップの品が2つで、福引きがない。オーラスの和了は場の目標点の1/4以上の点数が要る',
+    description: 'お題が2つ。ショップの品が2つで、福引きがない。オーラスの和了は2,000点以上が要る',
+    missionSlots: 2,
     shopSize: 2,
     noGacha: true,
-    orasuWin: 0.25,
+    orasuWin: 2000,
   },
 ];
 
@@ -282,14 +293,15 @@ export function sameStart(a: RunStart, b: RunStart): boolean {
 /** 雀士と段位から決まる、そのランのルール */
 export interface RunRules {
   base: BaseRules;
-  targets: number[];
+  /** お題の枠（倍率と、段位の上乗せを足して MAX_MISSION_TIER までに抑えた段） */
+  missionSlots: { times: number; tier: number }[];
   startMoney: number;
-  /** 場を突破したときの祝儀（利子と目標超過の分を除く） */
-  clearBonus: number;
+  /** 和了の祝儀の増減（段位の縛り） */
+  winMoneyDelta: number;
   shopSize: number;
   /** ショップで福引きを回せる（福引き券をもらえる） */
   gacha: boolean;
-  /** オーラスの和了が突破の条件か（null は条件なし）。値は和了に要る点数の場の目標点に対する割合 */
+  /** オーラスの和了がクリアの条件か（null は条件なし）。値は和了に要る点数（0 なら点数を問わない） */
   orasuWin: number | null;
   charms: CharmId[];
   equipment: EquipId[];
@@ -298,25 +310,30 @@ export interface RunRules {
 export function runRulesFor(start: RunChoice): RunRules {
   const c = characterOf(start.character);
   if (!c) throw new Error(`unknown character: ${start.character}`);
-  let targetTimes = 1;
+  let missionShift = 0;
+  let slots = MISSION_SLOTS.length;
   let turns = DEFAULT_BASE_RULES.turns + (c.turnsDelta ?? 0);
-  let clearBonus = BASE_CLEAR_BONUS;
+  let winMoneyDelta = 0;
   let shopSize = BASE_SHOP_SIZE;
   let gacha = true;
   let orasuWin: number | null = null;
   for (const d of DANS.slice(0, start.dan + 1)) {
     orasuWin = d.orasuWin ?? orasuWin;
-    targetTimes = d.targetTimes ?? targetTimes;
+    missionShift = d.missionShift ?? missionShift;
+    slots = d.missionSlots ?? slots;
     turns += d.turnsDelta ?? 0;
-    clearBonus += d.clearBonusDelta ?? 0;
+    winMoneyDelta += d.winMoneyDelta ?? 0;
     shopSize = d.shopSize ?? shopSize;
     if (d.noGacha) gacha = false;
   }
   return {
     base: { ...DEFAULT_BASE_RULES, ...c.base, turns },
-    targets: BASE_WAVE_TARGETS.map((t) => t * targetTimes),
+    missionSlots: MISSION_SLOTS.slice(MISSION_SLOTS.length - slots).map((s) => ({
+      ...s,
+      tier: Math.min(MAX_MISSION_TIER, s.tier + missionShift),
+    })),
     startMoney: c.money,
-    clearBonus: Math.max(0, clearBonus),
+    winMoneyDelta,
     shopSize,
     gacha,
     orasuWin,
@@ -342,6 +359,7 @@ export function scrollYakuAvailable(unlockedYaku: readonly string[]): string[] {
 export function mergeProgress(a: Progress, b: Progress): Progress {
   return {
     yakuWon: [...new Set([...a.yakuWon, ...b.yakuWon])].sort(),
+    bestTimes: Math.max(a.bestTimes, b.bestTimes),
     bestWaves: Math.max(a.bestWaves, b.bestWaves),
     danCleared: Math.max(a.danCleared, b.danCleared),
     // 並びは ID の順（backend の upsertProgress の ORDER BY と同じ）
@@ -354,13 +372,18 @@ export function mergeProgress(a: Progress, b: Progress): Progress {
  * 一覧（CHARACTERS）の順で最初の 1 人だけを解禁する。残りは次のランを終えたときに 1 人ずつ解禁する
  */
 export function progressAfter(p: Progress, run: RunState): Progress {
+  const summary = runSummary(run);
   const merged = mergeProgress(p, {
     yakuWon: run.yakuWon,
-    bestWaves: runSummary(run).wavesCleared,
-    danCleared: run.phase === 'cleared' ? run.start.dan : -1,
+    // 解禁の条件は「その倍率のお題を果たした」で見るので、合計ではなく、果たしたお題のうちいちばん高い倍率
+    bestTimes: summary.cleared ? Math.max(0, ...summary.missions.filter((m) => m.met).map((m) => m.times)) : 0,
+    bestWaves: 0,
+    danCleared: summary.cleared ? run.start.dan : -1,
     characters: [],
   });
-  const next = CHARACTERS.find((c) => !characterUnlocked(merged, c.id) && c.condition(merged));
+  // 4 場の形の条件を満たして解禁を待っていた雀士も、1 人ずつ解禁を続ける（前の形で満たした条件を失わせない）
+  const met = (c: CharacterDef) => c.condition(merged) || !!c.legacyCondition?.(merged);
+  const next = CHARACTERS.find((c) => !characterUnlocked(merged, c.id) && met(c));
   return next ? mergeProgress(merged, { ...EMPTY_PROGRESS, characters: [next.id] }) : merged;
 }
 

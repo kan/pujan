@@ -5,19 +5,23 @@ import {
   CONSUMABLES,
   EQUIPMENT,
   GACHA,
-  KYOKU_PER_WAVE,
   MAX_CHARMS,
   innateCharms,
+  isOrasu,
+  missionLabel,
+  missionMet,
+  missionProgressOf,
+  missionText,
   orasuNeed,
   OFFER_KIND_LABEL,
   MODS,
-  WAVE_COUNT,
-  WIND_NAMES,
   ALL_KINDS,
   characterName,
   defaultComposition,
   danName,
   startLabel,
+  timesLabel,
+  type Mission,
   type NewUnlocks,
   type BossId,
   type CharmId,
@@ -27,11 +31,11 @@ import {
   type Kind,
   type Offer,
   type RunState,
-  type RunSummary,
+  type RecordedSummary,
 } from '@pujan/engine';
 
-// 場の名前と雀士・段位の書き方は engine にある（プレイの集計と同じ書き方にするため。品の種類の名前は OFFER_KIND_LABEL）
-export { WIND_NAMES, startLabel };
+// 雀士・段位とお題の書き方は engine にある（プレイの集計と同じ書き方にするため。品の種類の名前は OFFER_KIND_LABEL）
+export { missionLabel, missionText, startLabel, timesLabel };
 
 /* engine の定義を id で引く */
 export const charmDef = (id: CharmId) => CHARMS.find((c) => c.id === id)!;
@@ -50,22 +54,40 @@ export const GACHA_TEXT = `祝儀${GACHA.price}で、${(Object.keys(GACHA.weight
   .map((k) => OFFER_KIND_LABEL[k])
   .join('・')}のどれかが当たる（牌の改造は出ない）。はずれ（${GACHA.missRate * 100}%）は祝儀${GACHA.missRefund}が戻る`;
 
-/** オーラスの和了の褒美の説明（ヘルプとチュートリアルで同じ文を使う。GitHub issue #9） */
-export const ORASU_PRIZE_TEXT =
-  'オーラス（場の4局目）で和了ると、福引きと同じ景品から1つをはずれなしでもらえる（場ごとに最初の1回だけ。福引きのない段位でももらえる）';
+/** お題の説明（ヘルプとチュートリアルで同じ文を使う。docs/SPEC.md §4.1） */
+export const MISSION_TEXT =
+  'ランごとにお題が3つ出る（和了の回数・4局の合計点・特定の役での和了）。東4局を終えたときに1つ以上果たしていればクリア。お題には倍率があり、クリアすると、果たしたお題の倍率の合計を4局の合計点に掛けた点数が記録になる';
+
+/** お題の進み具合（「2/3 回」「4,200/6,000点」「済」）と、果たしたか（判定は engine の missionMet） */
+export function missionProgress(run: RunState, m: Mission): { text: string; done: boolean; ratio: number } {
+  const p = missionProgressOf(run);
+  const done = missionMet(m, p);
+  switch (m.kind) {
+    case 'wins':
+      return { text: `${Math.min(p.wins, m.need)}/${m.need} 回`, done, ratio: Math.min(1, p.wins / m.need) };
+    case 'points':
+      return {
+        text: `${p.points.toLocaleString()}/${m.need.toLocaleString()}点`,
+        done,
+        ratio: Math.max(0, Math.min(1, p.points / m.need)),
+      };
+    case 'yaku':
+      return { text: done ? '済' : '未', done, ratio: done ? 1 : 0 };
+  }
+}
 
 /**
- * 段位の縛りで要る、オーラスの和了の条件（「オーラスで和了らないと突破できません」）。条件がなければ空
+ * 段位の縛りで要る、オーラスの和了の条件（「オーラスで和了らないとクリアになりません」）。条件がなければ空
  */
 export function orasuRuleText(run: RunState): string {
   const need = orasuNeed(run);
   if (need === null) return '';
   return need <= 1
-    ? 'オーラスで和了らないと突破できません'
-    : `オーラスで${need.toLocaleString()}点以上の和了がないと突破できません`;
+    ? 'オーラスで和了らないとクリアになりません'
+    : `オーラスで${need.toLocaleString()}点以上の和了がないとクリアになりません`;
 }
 
-/** もらった品（福引き・オーラスの和了）の名前と説明。役の巻物はもう受け取ったので、受け取る前のレベルから名前を作る */
+/** もらった品（福引き）の名前と説明。役の巻物はもう受け取ったので、受け取る前のレベルから名前を作る */
 export function receivedText(p: Offer, yakuLevels: Readonly<Record<string, number>>): { name: string; description: string } {
   const before = p.kind === 'scroll' ? { ...yakuLevels, [p.yaku]: (yakuLevels[p.yaku] ?? 1) - 1 } : yakuLevels;
   return offerText(p, before);
@@ -82,8 +104,8 @@ export function unlockLines(u: NewUnlocks): string[] {
 }
 
 /** 局の名前（「東2局 1本場（親）」） */
-export function roundLabel(wave: number, kyoku: number, honba: number, dealer: boolean): string {
-  return `${WIND_NAMES[wave]}${kyoku + 1}局${honba ? ` ${honba}本場` : ''}${dealer ? '（親）' : ''}`;
+export function roundLabel(kyoku: number, honba: number, dealer: boolean): string {
+  return `東${kyoku + 1}局${honba ? ` ${honba}本場` : ''}${dealer ? '（親）' : ''}`;
 }
 
 /** 山にある枚数と赤・金（「4枚・赤1」） */
@@ -98,14 +120,21 @@ export function modifiedKinds(run: RunState): Set<Kind> {
   return new Set(ALL_KINDS.filter((k) => c.count[k] !== d.count[k] || c.red[k] !== d.red[k] || c.gold[k] !== d.gold[k]));
 }
 
-/** ランの成績（「2場突破・合計3,000点」「全場クリア・合計…」） */
-export function summaryText(s: RunSummary): string {
-  return `${s.wavesCleared >= WAVE_COUNT ? '全場クリア' : `${s.wavesCleared}場突破`}・合計${s.totalScore.toLocaleString()}点`;
+/**
+ * ランの成績（「クリア（お題 2/3・×2.5）・記録15,500点」「未達・合計6,200点」）。
+ * お題がないのは 4 場の形で記録したランキングの行
+ */
+export function summaryText(s: RecordedSummary): string {
+  if (!s.missions) return `前の形（4場）の記録・合計${s.totalScore.toLocaleString()}点`;
+  const met = s.missions.filter((m) => m.met).length;
+  return s.cleared
+    ? `クリア（お題 ${met}/${s.missions.length}・${timesLabel(s.times)}）・記録${s.recordScore.toLocaleString()}点`
+    : `未達・合計${s.totalScore.toLocaleString()}点`;
 }
 
-/** 局の結果のシートの、精算ボタンの文言（オーラスのあとは場の判定、それ以外はショップ） */
+/** 局の結果のシートの、精算ボタンの文言（オーラスのあとはランの結果、それ以外はショップ） */
 export function settleLabel(run: RunState): string {
-  return run.round.kyoku >= KYOKU_PER_WAVE - 1 ? '場の結果へ' : 'ショップへ';
+  return isOrasu(run) ? 'ランの結果へ' : 'ショップへ';
 }
 
 /** ショップの品物の名前と説明。役の巻物は買ったあとのレベルを名前に出す */

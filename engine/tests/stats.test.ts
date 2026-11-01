@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { ENGINE_VERSION, apply, createGame, isFinished, newLog, replay, type GameAction, type RunLog } from '../src/game.js';
-import { MAX_CHARMS } from '../src/items.js';
+import { BOSSES, MAX_CHARMS } from '../src/items.js';
+import { missionKey } from '../src/mission.js';
 import { DEFAULT_START } from '../src/progression.js';
 import { canGacha, runSummary } from '../src/run.js';
 import { botAction } from '../src/sim.js';
@@ -35,10 +36,15 @@ function playedLog(seed: number, maxActions = Infinity): RunLog {
 }
 
 describe('プレイの集計', () => {
-  it('1 つのランから、局・和了・役・ショップ・負けた場を数える', () => {
+  it('1 つのランから、お題・局・和了・役・ショップを数える', () => {
     const log = playedLog(3);
     const s = analyzeRun(log)!;
+    const g = replay(log);
+    const summary = runSummary(g.run);
     expect(s.start).toBe('くま・初段');
+    expect(s.missions).toEqual(summary.missions.map((m) => ({ key: missionKey(m), times: m.times, met: m.met })));
+    expect(s).toMatchObject({ times: summary.times, cleared: summary.cleared, totalScore: summary.totalScore });
+    expect(BOSSES.map((b) => b.name)).toContain(s.boss);
     expect(s.kyoku).toBe(log.actions.filter((a) => a.type === 'settle').length);
     expect(s.wins).toBeGreaterThan(0);
     expect(s.yaku.length).toBeGreaterThanOrEqual(s.wins);
@@ -50,8 +56,6 @@ describe('プレイの集計', () => {
     // 福引きは回した回数ぶん、景品かはずれを数える
     expect(s.gacha?.length).toBe(log.actions.filter((a) => a.type === 'gacha').length);
     expect(s.gacha?.length).toBeGreaterThan(0);
-    // ラン終了なら負けた場のボスが分かる
-    expect(s.lostBoss === null).toBe(s.wavesCleared === 4);
   });
 
   it('終わっていない・版が違う・再生できない・始めの条件の形が違うログは null', () => {
@@ -62,14 +66,22 @@ describe('プレイの集計', () => {
   });
 
   it('ランを合計する', { timeout: 30_000 }, () => {
-    const logs = [1, 2].map((seed) => playedLog(seed));
+    const logs = [1, 2, 3, 4].map((seed) => playedLog(seed));
     const runs = logs.map((l) => analyzeRun(l)!);
     const total = aggregate(runs);
-    expect(total.runs).toBe(2);
-    expect(total.byStart['くま・初段'].runs).toBe(2);
+    expect(total.runs).toBe(4);
     const summaries = logs.map((l) => runSummary(replay(l).run));
-    expect(total.byStart['くま・初段'].waves).toBe(summaries.reduce((a, s) => a + s.wavesCleared, 0));
-    expect(total.lostAt.reduce((a, n) => a + n, 0) + total.byStart['くま・初段'].cleared).toBe(2);
+    const cleared = summaries.filter((s) => s.cleared).length;
+    const score = summaries.reduce((a, s) => a + s.totalScore, 0);
+    expect(total.byStart['くま・初段']).toEqual({ runs: 4, cleared, score });
+    const sum = (by: typeof total.byBoss) =>
+      Object.values(by).reduce((a, c) => ({ runs: a.runs + c.runs, cleared: a.cleared + c.cleared, score: a.score + c.score }), { runs: 0, cleared: 0, score: 0 });
+    expect(sum(total.byBoss)).toEqual({ runs: 4, cleared, score });
+    // お題ごとの集計は、1 ランに 3 つずつ掲げたお題を数える（cleared は果たした数）
+    const met = summaries.reduce((a, s) => a + s.missions.filter((m) => m.met).length, 0);
+    for (const by of [total.byMission, total.byTimes]) expect(sum(by)).toEqual({ runs: 12, cleared: met, score: score * 3 });
+    expect(Object.keys(total.byTimes).sort()).toEqual(['×1', '×1.5', '×2']);
+    expect(Object.values(total.byMetCount).reduce((a, n) => a + n, 0)).toBe(4);
     expect(total.kyoku).toBe(runs.reduce((a, r) => a + r.kyoku, 0));
     const bought = Object.values(total.shop).reduce((a, s) => a + s.bought, 0);
     expect(bought).toBe(runs.reduce((a, r) => a + r.bought.length, 0));

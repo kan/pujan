@@ -7,15 +7,14 @@ import {
   DEFAULT_BASE_RULES,
   EAST,
   SOUTH,
-  BASE_WAVE_TARGETS,
-  WIND_NAMES,
   CHARACTERS,
   CHUN,
   characterName,
   DANS,
-  KYOKU_PER_WAVE,
-  WAVE_COUNT,
+  KYOKU_COUNT,
+  MISSION_SLOTS,
   createRng,
+  timesLabel,
   defaultComposition,
   man as m,
   modifiersFor,
@@ -126,7 +125,7 @@ export const PLAY_STEPS: readonly PlayStep[] = [
 
 /** 説明に出す数字（engine の既定のルールから。数字を変えたら説明も変わる） */
 const RULES = modifiersFor(DEFAULT_BASE_RULES, { charms: [], equipment: [] }, null);
-const targetsText = BASE_WAVE_TARGETS.map((t, i) => `${WIND_NAMES[i]}${t.toLocaleString('ja-JP')}`).join('・');
+const timesText = MISSION_SLOTS.map((s) => timesLabel(s.times)).join('・');
 
 /** 和了ったあとに読んでもらう、ランの流れの説明 */
 export const GUIDE_PAGES: readonly { title: string; body: string[]; /** 「役と遊び方」の遊び方のタブにも出す */ inHelp?: boolean }[] = [
@@ -141,26 +140,26 @@ export const GUIDE_PAGES: readonly { title: string; body: string[]; /** 「役�
     title: 'ランの流れ',
     inHelp: true,
     body: [
-      `東・南・西・北の${WAVE_COUNT}つの場を勝ち抜けばクリアです。1つの場は${KYOKU_PER_WAVE}局で、${KYOKU_PER_WAVE}局の点数の合計が場の目標点（${targetsText}点）に届けば次の場へ進めます。`,
+      `1回のランは東風戦（東1局〜東${KYOKU_COUNT}局）です。ランごとにお題が3つ出て、東${KYOKU_COUNT}局を終えたときに1つ以上果たしていればクリアです。お題は「和了を3回」「4局の合計が6,000点以上」「混一色で和了る」のような条件です。`,
+      `お題には倍率（${timesText}）が付いていて、難しいお題ほど高くなります。クリアすると、果たしたお題の倍率の合計を4局の合計点に掛けた点数が記録になります。全部果たせば大きく伸びるので、東${KYOKU_COUNT}局まで点数とお題を狙いましょう。`,
       `1局は${RULES.turns}巡で、和了れるのは1回だけ。${RULES.turns}巡で和了れなければ流局です（聴牌していれば聴牌料${RULES.tenpaiFee}点）。`,
-      `${KYOKU_PER_WAVE}局のうち1局は親番です。親の和了は${RULES.dealerMultiplier}倍で、連荘すると同じ局をもう一度遊べます。`,
-      `${KYOKU_PER_WAVE}局目（オーラス）で和了ると、景品を1つもらえます。目標点に届いたあとも、最後まで和了を狙いましょう。`,
+      `${KYOKU_COUNT}局のうち1局は親番です。親の和了は${RULES.dealerMultiplier}倍で、連荘すると同じ局をもう一度遊べます（連荘の和了も和了の回数に数えます）。`,
     ],
   },
   {
     title: 'ボスとショップ',
     inHelp: true,
     body: [
-      '各場の4局目（オーラス）にはボスがいて、「保留枠が使えない」「ネクストが見えない」などの縛りが付きます。場の始めに分かるので、それまでに点数を稼いでおきましょう。',
-      '和了ると祝儀（お金）がもらえます。局が終わるたびにショップが開き、祝儀でお守り・設備・消耗品・牌の改造・役の巻物を買えます。組み合わせて点数を伸ばしましょう。',
+      `東${KYOKU_COUNT}局（オーラス）にはボスがいて、「保留枠が使えない」「ネクストが見えない」などの縛りが付きます。ランの始めのショップで分かるので、それまでに点数とお題を進めておきましょう。`,
+      '和了ると祝儀（お金）がもらえます。ランの始めと、局が終わるたびにショップが開き、祝儀でお守り・設備・消耗品・牌の改造・役の巻物を買えます。持っている祝儀には、局のあとに利子が付きます。組み合わせて点数を伸ばしましょう。',
     ],
   },
   {
     title: '雀士・段位・解禁',
     inHelp: true,
     body: [
-      `ランを始めるときに雀士と段位を選べます。雀士（${CHARACTERS.map((c) => characterName(c.id)).join('・')}）は保留枠やネクスト、始めの持ち物が違います。はじめは「${characterName(CHARACTERS[0].id)}」だけで、場を突破したり特定の役で和了ったりすると選べるようになります。`,
-      `段位（${DANS[0].name}〜${DANS[DANS.length - 1].name}）は上がるほど目標点などの縛りが重くなります。全場クリアすると次の段位を選べます。ランキングは段位の高い記録が上です。`,
+      `ランを始めるときに雀士と段位を選べます。雀士（${CHARACTERS.map((c) => characterName(c.id)).join('・')}）は保留枠やネクスト、始めの持ち物が違います。はじめは「${characterName(CHARACTERS[0].id)}」だけで、クリアしたり特定の役で和了ったりすると選べるようになります。`,
+      `段位（${DANS[0].name}〜${DANS[DANS.length - 1].name}）は上がるほどお題などの縛りが重くなります。クリアすると次の段位を選べます。ランキングは段位の高い記録が上で、同じ段位ならクリアした記録、その中では記録点の高い記録が上です。`,
       'その役で一度和了ると、その役の巻物がショップに並ぶようになります。役に結び付いたお守り（色眼鏡・飛び石など）も同じです。',
     ],
   },

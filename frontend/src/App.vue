@@ -17,13 +17,12 @@ import AboutSheet from '@/components/sheets/AboutSheet.vue';
 import DrawSheet from '@/components/sheets/DrawSheet.vue';
 import FeedbackSheet from '@/components/sheets/FeedbackSheet.vue';
 import HelpSheet from '@/components/sheets/HelpSheet.vue';
-import IntroSheet from '@/components/sheets/IntroSheet.vue';
 import InventorySheet from '@/components/sheets/InventorySheet.vue';
 import MenuSheet from '@/components/sheets/MenuSheet.vue';
 import RankingSheet from '@/components/sheets/RankingSheet.vue';
+import ResultSheet from '@/components/sheets/ResultSheet.vue';
 import ShopSheet from '@/components/sheets/ShopSheet.vue';
 import StartSheet from '@/components/sheets/StartSheet.vue';
-import WaveSheet from '@/components/sheets/WaveSheet.vue';
 import WinSheet from '@/components/sheets/WinSheet.vue';
 
 const store = useGameStore();
@@ -74,9 +73,8 @@ async function newRun(choice: RunChoice) {
 const sheet = computed(() => {
   const { run, kyoku } = store.game;
   if (kyoku?.result) return kyoku.result.type === 'win' ? 'win' : 'draw';
-  if (run.phase === 'over' || run.phase === 'cleared') return 'wave';
-  if (run.phase === 'shop') return store.showWaveResult ? 'wave' : 'shop';
-  return store.showIntro ? 'intro' : null;
+  if (run.phase === 'over' || run.phase === 'cleared') return 'result';
+  return run.phase === 'shop' ? 'shop' : null;
 });
 </script>
 
@@ -115,16 +113,14 @@ const sheet = computed(() => {
   <FeedbackSheet v-else-if="panel === 'feedback'" @close="panel = null" />
   <WinSheet v-else-if="sheet === 'win'" />
   <DrawSheet v-else-if="sheet === 'draw'" />
-  <WaveSheet
-    v-else-if="sheet === 'wave'"
-    @close="store.dismiss()"
+  <ResultSheet
+    v-else-if="sheet === 'result'"
     @open-ranking="panel = 'ranking'"
     @open-feedback="panel = 'feedback'"
     @open-menu="panel = 'menu'"
     @new-run="panel = 'start'"
   />
   <ShopSheet v-else-if="sheet === 'shop'" @open-inventory="panel = 'inventory'" />
-  <IntroSheet v-else-if="sheet === 'intro'" />
 
   <TutorialView v-if="tutorial" :first-visit="tutorial.firstVisit" @close="closeTutorial" />
 </template>
