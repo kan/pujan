@@ -174,7 +174,8 @@ export function createRun(seed: number, options: RunOptions = {}): RunState {
   const rules = runRulesFor(start);
   const base = options.base ?? rules.base;
   const [rng0, round] = newRound(createRng(mix32(seed)));
-  const [rng, missions] = rollMissions(rng0, rules.missionSlots);
+  // 三対子は保留牌を含む 6 枚で作るので、保留枠のない雀士（かめ）には出さない
+  const [rng, missions] = rollMissions(rng0, rules.missionSlots, base.holdSlots === 0 ? ['三対子'] : []);
   let composition = defaultComposition(base.redFives);
   for (const m of options.mods ?? []) {
     if (!canModify(composition, m.id, m.kind)) throw new Error(`cannot apply ${m.id} to ${m.kind}`);

@@ -30,16 +30,29 @@ export interface Mission {
 export const MISSION_KINDS: readonly MissionKind[] = ['wins', 'points', 'yaku'];
 export const MAX_MISSION_TIER = 5;
 
-/** 段ごとの値（添字は段 − 1）。初版の値で、sim と人の集計で決め直す */
+/**
+ * 段ごとの値（添字は段 − 1）。賢い AI の sim（くま・初段）で、段 1 から順に 9 割・7 割・5 割・3 割・2 割ほど
+ * 果たせるように決めた（docs/SPEC.md §4.1）
+ */
 export const MISSION_WINS: readonly number[] = [2, 3, 4, 5, 6];
-export const MISSION_POINTS: readonly number[] = [3000, 6000, 12000, 24000, 48000];
+export const MISSION_POINTS: readonly number[] = [3000, 5000, 8000, 12000, 20000];
+/**
+ * 役のお題の段。その役か、それより上の段のどれかの役で和了れば果たしたことにする。
+ * 門前・混一色・断么九は易しすぎる（上の段の役を数えなくても 7 割前後）ので、お題にしない
+ */
 export const MISSION_YAKU: readonly (readonly string[])[] = [
-  ['役牌', '断么九', '門前'],
-  ['混一色', 'プチ三色', '三対子', 'プチ国士', 'プチ小四喜'],
-  ['清一色', 'プチ一通', 'プチ四暗刻'],
+  ['清一色', 'プチ三色', 'プチ国士'],
+  ['三対子', 'プチ小四喜', '役牌'],
+  ['プチ四暗刻', 'プチ一通'],
   ['プチ小三元'],
   [YAKUMAN_MARK],
 ];
+
+/** 役のお題を果たす役（その役と、それより上の段の役。役満は YAKUMAN_MARK） */
+export function missionYakuSet(m: Mission): readonly string[] {
+  if (m.kind !== 'yaku') return [];
+  return [m.yaku!, ...MISSION_YAKU.slice(m.tier).flat()];
+}
 
 /** 候補の枠（倍率と、段位の縛りがないときの段）。雀聖は前の枠を除いて 2 つにする（progression.ts の runRulesFor） */
 export const MISSION_SLOTS: readonly { times: number; tier: number }[] = [
@@ -58,9 +71,14 @@ export function makeMission(kind: MissionKind, tier: number, times: number, yaku
 
 /**
  * このランのお題を作る。枠（段位の上乗せを足して 5 までに抑えた段。runRulesFor）ごとに種類を決め、枠どうしで種類が重ならないようにする
- * （種類の並びを乱数で入れ替えて、枠に順に割り当てる）。役のお題は、その段の役から乱数で選ぶ
+ * （種類の並びを乱数で入れ替えて、枠に順に割り当てる）。役のお題は、その段の役から乱数で選ぶ。
+ * excludedYaku はお題にしない役（保留枠のない雀士の三対子など。その段の役がすべて除かれることはない）
  */
-export function rollMissions(rng: number, slots: readonly { times: number; tier: number }[]): [number, Mission[]] {
+export function rollMissions(
+  rng: number,
+  slots: readonly { times: number; tier: number }[],
+  excludedYaku: readonly string[] = [],
+): [number, Mission[]] {
   let r = rng;
   const kinds = MISSION_KINDS.slice();
   for (let i = kinds.length - 1; i > 0; i--) {
@@ -74,7 +92,7 @@ export function rollMissions(rng: number, slots: readonly { times: number; tier:
     const { tier } = slot;
     let yaku: string | null = null;
     if (kind === 'yaku') {
-      const list = MISSION_YAKU[tier - 1];
+      const list = MISSION_YAKU[tier - 1].filter((y) => !excludedYaku.includes(y));
       let pick: number;
       [r, pick] = nextInt(r, list.length);
       yaku = list[pick];
@@ -102,7 +120,7 @@ export function missionMet(m: Mission, p: MissionProgress): boolean {
     case 'points':
       return p.points >= m.need;
     case 'yaku':
-      return p.yakuWon.includes(m.yaku!);
+      return missionYakuSet(m).some((y) => p.yakuWon.includes(y));
   }
 }
 
@@ -125,7 +143,8 @@ export function missionLabel(m: Mission): string {
     case 'points':
       return `合計 ${m.need.toLocaleString('en-US')} 点以上`;
     case 'yaku':
-      return `${m.yaku}で和了る`;
+      // 上の段の役でもよい（役満の段はいちばん上なので「以上」を付けない）
+      return m.yaku === YAKUMAN_MARK ? '役満で和了る' : `${m.yaku}以上の役で和了る`;
   }
 }
 

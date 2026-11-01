@@ -384,7 +384,7 @@ describe('感想', () => {
     character: 'standard',
     dan: 0,
     kyoku: 1,
-    missions: '×1 和了 2 回（済）・×1.5 合計 6,000 点以上・×2 清一色で和了る',
+    missions: '×1 和了 2 回（済）・×1.5 合計 5,000 点以上・×2 プチ四暗刻以上の役で和了る',
     finished: false,
     cleared: null,
     score: 1200,

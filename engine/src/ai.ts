@@ -48,7 +48,7 @@ import {
   type KyokuState,
   type Zone,
 } from './kyoku.js';
-import { YAKUMAN_MARK, missionMet, wonYakuNames } from './mission.js';
+import { YAKUMAN_MARK, missionMet, missionYakuSet, wonYakuNames } from './mission.js';
 import { mix32, nextInt } from './rng.js';
 import {
   KYOKU_COUNT,
@@ -240,8 +240,11 @@ export interface AiSituation {
   /** 回数のお題で、まだ要る和了の回数（回数のお題がないか、果たしていれば 0） */
   winsNeed: number;
   winsTimes: number;
-  /** 役のお題で、まだ和了っていない役（YAKUMAN_MARK は役満のどれか。役のお題がないか、果たしていれば null） */
-  yaku: string | null;
+  /**
+   * 役のお題を果たす役（お題の役と、それより上の段の役。YAKUMAN_MARK は役満のどれか）。
+   * 役のお題がないか、果たしていれば null
+   */
+  yaku: readonly string[] | null;
   yakuTimes: number;
   /** もう果たした回数・役のお題の倍率の合計（果たしたら減らない） */
   metTimes: number;
@@ -295,7 +298,7 @@ function utility(p: number, sit: AiSituation | undefined, dealer: boolean, win: 
 
 /** 形の役（役満なら倍数が 1 以上）が、役のお題の役を含むか（YAKUMAN_MARK は役満のどれか） */
 const hitsYaku = (sit: AiSituation | undefined, names: readonly string[], yakuman: boolean): boolean =>
-  !!sit?.yaku && (sit.yaku === YAKUMAN_MARK ? yakuman : names.includes(sit.yaku));
+  !!sit?.yaku && sit.yaku.some((y) => (y === YAKUMAN_MARK ? yakuman : names.includes(y)));
 
 /* ---------- 見積もり ---------- */
 
@@ -600,8 +603,7 @@ function estimate(e: Estimator, k: Kept): number {
       }
     }
     const pts = finalPoints(s, p.yakuman[i], han, !!p.noYaku[i], p.level[i]) + gold * GOLD_POINTS;
-    // 門前はボーナスの翻なので形の役には入っていない（役満とは複合しない）
-    const hit = sit?.yaku === '門前' ? menzen && p.yakuman[i] === 0 : hitsYaku(sit, p.yaku[i], p.yakuman[i] > 0);
+    const hit = hitsYaku(sit, p.yaku[i], p.yakuman[i] > 0);
     sum += prob;
     sumU += prob * utility(pts, sit, e.dealer, true, hit);
     if (prob > maxP) maxP = prob;
@@ -765,7 +767,7 @@ function riichiValue(e: Estimator, c: Candidate): number | null {
 
 /** 和了の役が、役のお題の役を含むか（精算で yakuWon に入る名前と同じもので見る） */
 const winHits = (sit: AiSituation | undefined, ev: { yaku: readonly { name: string }[]; yakuman: number }): boolean =>
-  !!sit?.yaku && wonYakuNames(ev).includes(sit.yaku);
+  !!sit?.yaku && sit.yaku.some((y) => wonYakuNames(ev).includes(y));
 
 /** 今のツモで和了ったときの効用 */
 function winNowValue(s: KyokuState, sit: AiSituation | undefined): number {
@@ -937,7 +939,7 @@ export function situationOf(run: RunState): AiSituation {
   const r = run.round;
   const prog = missionProgressOf(run);
   const orasu = orasuNeed(run);
-  const sit = { need: null as number | null, pointsTimes: 0, winsNeed: 0, winsTimes: 0, yaku: null as string | null, yakuTimes: 0, metTimes: 0 };
+  const sit = { need: null as number | null, pointsTimes: 0, winsNeed: 0, winsTimes: 0, yaku: null as readonly string[] | null, yakuTimes: 0, metTimes: 0 };
   for (const m of run.missions) {
     if (m.kind === 'points') {
       sit.need = m.need - prog.points;
@@ -948,7 +950,7 @@ export function situationOf(run: RunState): AiSituation {
       sit.winsNeed = m.need - prog.wins;
       sit.winsTimes = m.times;
     } else {
-      sit.yaku = m.yaku;
+      sit.yaku = missionYakuSet(m);
       sit.yakuTimes = m.times;
     }
   }

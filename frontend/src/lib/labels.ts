@@ -56,7 +56,7 @@ export const GACHA_TEXT = `祝儀${GACHA.price}で、${(Object.keys(GACHA.weight
 
 /** お題の説明（ヘルプとチュートリアルで同じ文を使う。docs/SPEC.md §4.1） */
 export const MISSION_TEXT =
-  'ランごとにお題が3つ出る（和了の回数・4局の合計点・特定の役での和了）。東4局を終えたときに1つ以上果たしていればクリア。お題には倍率があり、クリアすると、果たしたお題の倍率の合計を4局の合計点に掛けた点数が記録になる';
+  'ランごとにお題が3つ出る（和了の回数・4局の合計点・特定の役での和了。役のお題は、それより難しい役で和了ってもよい）。東4局を終えたときに1つ以上果たしていればクリア。お題には倍率があり、クリアすると、果たしたお題の倍率の合計を4局の合計点に掛けた点数が記録になる';
 
 /** お題の進み具合（「2/3 回」「4,200/6,000点」「済」）と、果たしたか（判定は engine の missionMet） */
 export function missionProgress(run: RunState, m: Mission): { text: string; done: boolean; ratio: number } {

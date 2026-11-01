@@ -16,7 +16,7 @@ export interface FeedbackContext {
   dan: number;
   /** 終えた局の数（0〜4。親の連荘の本場は数えない） */
   kyoku: number;
-  /** お題と、果たしたか（「×1 和了 2 回（済）・×1.5 合計 6,000 点以上・×2 清一色で和了る」） */
+  /** お題と、果たしたか（「×1 和了 2 回（済）・×1.5 合計 5,000 点以上・×2 プチ四暗刻以上の役で和了る」） */
   missions: string;
   finished: boolean;
   /** お題を果たしてクリアしたか（ランが終わる前は null） */

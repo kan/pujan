@@ -235,7 +235,7 @@ describe('操作ログと再生', () => {
         expect(canGacha(after)).toBe(false);
         expect(() => apply({ ...g, run: after }, { type: 'gacha' })).toThrow();
       }
-      // はずれは GACHA.missRate（5 割）ほど
+      // はずれは GACHA.missRate（3 割）ほど
       expect(misses / 200).toBeGreaterThan(GACHA.missRate - 0.1);
       expect(misses / 200).toBeLessThan(GACHA.missRate + 0.1);
       expect(prizes).toBeGreaterThan(0);
@@ -354,7 +354,7 @@ describe('ランの流れ（東風戦）', () => {
   });
 
   it('お題を 1 つ以上果たせばクリア。記録点は、果たしたお題の倍率の合計を掛ける（クリアしなければ掛けない）', () => {
-    const missions = [makeMission('wins', 1, 1), makeMission('points', 2, 1.5), makeMission('yaku', 3, 2, '清一色')];
+    const missions = [makeMission('wins', 1, 1), makeMission('points', 2, 1.5), makeMission('yaku', 1, 2, '清一色')];
     const run = runWith(missions);
     // 点数のお題だけ: ×1.5
     const points = runSummary(settleKyoku(atOrasu(run, 5900), winResult(300)));
@@ -364,8 +364,8 @@ describe('ランの流れ（東風戦）', () => {
     expect(runSummary(settleKyoku(atOrasu(run, 5900, 1), winResult(300))).times).toBe(2.5);
     expect(runSummary(settleKyoku(atOrasu(run, 5900, 1), winResult(300, 0, ['清一色']))).times).toBe(4.5);
     // 1 つも果たさなければ未達で、倍率は掛けない
-    const over = runSummary(settleKyoku(atOrasu(run, 5000), winResult(300)));
-    expect(over).toMatchObject({ cleared: false, times: 1, totalScore: 5300, recordScore: 5300 });
+    const over = runSummary(settleKyoku(atOrasu(run, 4000), winResult(300)));
+    expect(over).toMatchObject({ cleared: false, times: 1, totalScore: 4300, recordScore: 4300 });
   });
 
   it('連荘の和了も回数に数え、オーラスの親の連荘が途切れたところでランが終わる', () => {
@@ -401,28 +401,48 @@ describe('お題', () => {
     expect(createRun(5).missions).toEqual(createRun(5).missions);
     const seen = new Set<string>();
     for (let seed = 1; seed <= 60; seed++) for (const m of createRun(seed).missions) seen.add(missionLabel(m));
-    expect([...seen]).toEqual(expect.arrayContaining(['和了 2 回', '和了 3 回', '和了 4 回', '合計 3,000 点以上', '合計 12,000 点以上']));
-    expect([...seen].filter((l) => l.endsWith('で和了る')).length).toBeGreaterThan(4);
+    expect([...seen]).toEqual(expect.arrayContaining(['和了 2 回', '和了 3 回', '和了 4 回', '合計 3,000 点以上', '合計 8,000 点以上']));
+    expect([...seen].filter((l) => l.endsWith('以上の役で和了る')).length).toBeGreaterThan(4);
   });
 
-  it('お題の判定（回数・点数・役。役満の段はどの役満でもよい）', () => {
+  it('お題の判定（回数・点数・役。役のお題は上の段の役でもよく、役満の段はどの役満でもよい）', () => {
     const p = (wins: number, points: number, yakuWon: string[] = []) => ({ wins, points, yakuWon });
     expect(missionMet(makeMission('wins', 2, 1), p(3, 0))).toBe(true);
     expect(missionMet(makeMission('wins', 2, 1), p(2, 99999))).toBe(false);
     expect(missionMet(makeMission('points', 1, 1), p(0, 3000))).toBe(true);
     expect(missionMet(makeMission('points', 1, 1), p(9, 2900))).toBe(false);
-    expect(missionMet(makeMission('yaku', 2, 1, '混一色'), p(1, 0, ['混一色', 'ドラ']))).toBe(true);
-    expect(missionMet(makeMission('yaku', 2, 1, '混一色'), p(1, 0, ['清一色']))).toBe(false);
+    const sanshoku = makeMission('yaku', 1, 1, 'プチ三色');
+    expect(missionMet(sanshoku, p(1, 0, ['プチ三色', 'ドラ']))).toBe(true);
+    // 同じ段のほかの役は数えず、上の段の役は数える
+    expect(missionMet(sanshoku, p(1, 0, ['清一色']))).toBe(false);
+    expect(missionMet(sanshoku, p(1, 0, ['役牌']))).toBe(true);
+    expect(missionMet(sanshoku, p(1, 0, ['字一色', YAKUMAN_MARK]))).toBe(true);
+    // 下の段の役や、お題にしない易しい役は数えない
+    expect(missionMet(makeMission('yaku', 2, 1, '役牌'), p(1, 0, ['清一色', '混一色', '門前']))).toBe(false);
     expect(missionMet(makeMission('yaku', 5, 1, YAKUMAN_MARK), p(1, 0, ['字一色', YAKUMAN_MARK]))).toBe(true);
-    expect(() => makeMission('yaku', 1, 1, '清一色')).toThrow();
+    expect(missionMet(makeMission('yaku', 5, 1, YAKUMAN_MARK), p(1, 0, ['プチ小三元']))).toBe(false);
+    expect(() => makeMission('yaku', 1, 1, '役牌')).toThrow();
+    expect(missionLabel(sanshoku)).toBe('プチ三色以上の役で和了る');
+    expect(missionLabel(makeMission('yaku', 5, 1, YAKUMAN_MARK))).toBe('役満で和了る');
   });
 
-  it('役のお題は、その役を含む和了で果たす', () => {
-    const run = runWith(makeMission('yaku', 2, 1.5, '混一色'));
+  it('保留枠のない雀士（かめ）には、三対子のお題を出さない', () => {
+    for (let seed = 1; seed <= 200; seed++) {
+      const { missions } = createRun(seed, { start: { character: 'menzen', dan: 1, unlockedYaku: [] } });
+      expect(missions.some((m) => m.yaku === '三対子')).toBe(false);
+    }
+    const seen = new Set<string | null>();
+    for (let seed = 1; seed <= 200; seed++) for (const m of createRun(seed, { start: { character: 'standard', dan: 1, unlockedYaku: [] } }).missions) seen.add(m.yaku);
+    expect(seen.has('三対子')).toBe(true);
+  });
+
+  it('役のお題は、その役か上の段の役を含む和了で果たす', () => {
+    const run = runWith(makeMission('yaku', 2, 1.5, '役牌'));
     const missed = settleKyoku(atOrasu(run), winResult(800, 0, ['清一色']));
     expect(missed.phase).toBe('over');
     const hit = settleKyoku(atOrasu(run), winResult(800, 0, ['混一色', '役牌']));
     expect(hit.phase).toBe('cleared');
+    expect(settleKyoku(atOrasu(run), winResult(800, 0, ['プチ四暗刻'])).phase).toBe('cleared');
     const yakuman = runWith(makeMission('yaku', 5, 2, YAKUMAN_MARK));
     expect(settleKyoku(atOrasu(yakuman), winResult(8000, 0, ['字一色'], 1)).phase).toBe('cleared');
   });

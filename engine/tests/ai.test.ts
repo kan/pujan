@@ -120,8 +120,8 @@ describe('精算', () => {
 
   it('オーラスで回数・役のお題をまだ果たしていなければ連荘する', () => {
     expect(smartRenchan(lastKyoku(makeMission('wins', 2, 1), 0, 0, 1), 400)).toBe(true);
-    const yaku = makeMission('yaku', 2, 1, '混一色');
-    expect(smartRenchan(lastKyoku(yaku, 0), 400, ['役牌'])).toBe(true);
+    const yaku = makeMission('yaku', 2, 1, '役牌');
+    expect(smartRenchan(lastKyoku(yaku, 0), 400, ['断么九'])).toBe(true);
   });
 
   it('回数か役のお題を果たしていれば、点数のお題を割る恐れがあっても連荘する（果たしたお題は減らない）', () => {
@@ -143,7 +143,10 @@ describe('お題の見方', () => {
     const run = createRun(1);
     const missions = [makeMission('wins', 2, 1), makeMission('points', 2, 1.5), makeMission('yaku', 5, 2, YAKUMAN_MARK)];
     const sit = situationOf({ ...run, missions, round: { ...run.round, wins: 1, score: 1000 } });
-    expect(sit).toMatchObject({ need: 5000, pointsTimes: 1.5, winsNeed: 2, winsTimes: 1, yaku: YAKUMAN_MARK, yakuTimes: 2, metTimes: 0 });
+    expect(sit).toMatchObject({ need: 4000, pointsTimes: 1.5, winsNeed: 2, winsTimes: 1, yaku: [YAKUMAN_MARK], yakuTimes: 2, metTimes: 0 });
+    // 役のお題は、上の段の役でも果たせる
+    const lower = situationOf({ ...run, missions: [makeMission('yaku', 3, 1, 'プチ一通')] });
+    expect(lower.yaku).toEqual(['プチ一通', 'プチ小三元', YAKUMAN_MARK]);
     const done = situationOf({ ...run, missions, round: { ...run.round, wins: 3, score: 1000 } });
     expect(done).toMatchObject({ winsNeed: 0, metTimes: 1 });
   });
