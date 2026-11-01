@@ -272,10 +272,10 @@ export function beginKyoku(run: RunState): { run: RunState; kyoku: KyokuState } 
   return { run: { ...run, rng }, kyoku };
 }
 
-/** 和了の祝儀: 2＋翻数の半分（最大 6）、役満は 6、金牌 1 枚につき＋2。段位の縛りで減る（0 より下にはしない） */
+/** 和了の祝儀: 1＋翻数の半分（最大 4）、役満は 4、金牌 1 枚につき＋2。段位の縛りで減る（0 より下にはしない） */
 export function moneyForWin(run: RunState, result: Extract<KyokuResult, { type: 'win' }>): number {
   const ev = result.win.evaluation;
-  const base = ev.yakuman ? 6 : 2 + Math.min(4, Math.floor(ev.han / 2));
+  const base = ev.yakuman ? 4 : 1 + Math.min(3, Math.floor(ev.han / 2));
   return Math.max(0, base + runRulesFor(run.start).winMoneyDelta) + result.gold * GOLD_MONEY;
 }
 

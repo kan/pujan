@@ -84,9 +84,11 @@ describe('雀士と段位のルール', () => {
     const win = (han: number, gold: number) =>
       ({ type: 'win', gold, win: { evaluation: { yakuman: 0, han, yaku: [], noYaku: false } } }) as unknown as Extract<KyokuResult, { type: 'win' }>;
     const at = (dan: number) => createRun(1, { start: { ...DEFAULT_START, dan } });
-    expect(moneyForWin(at(0), win(4, 0))).toBe(4);
-    expect(moneyForWin(at(2), win(4, 0))).toBe(3);
-    expect(moneyForWin(at(2), win(0, 1))).toBe(1 + 2);
+    // 1＋翻数の半分（最大 4）
+    expect(moneyForWin(at(0), win(4, 0))).toBe(3);
+    expect(moneyForWin(at(0), win(10, 0))).toBe(4);
+    expect(moneyForWin(at(2), win(4, 0))).toBe(2);
+    expect(moneyForWin(at(2), win(0, 1))).toBe(0 + 2);
   });
 
   it('雀士で始めの条件が変わる', () => {
