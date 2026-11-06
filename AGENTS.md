@@ -72,6 +72,8 @@ npm test -w engine       # engine だけ
 
 GitHub Actions（`.github/workflows/ci.yml`）が push ごとに、engine のビルド・テスト・backend の型検査・frontend の型検査とビルドを回す。依存の更新は Dependabot（`.github/dependabot.yml`）が週に 1 度 PR を出す。
 
+action の `uses:` は完全な版のタグ（`@v7.0.1`）で書き、実際に動く commit は `.github/workflows/actions.lock` が固定する。lockfile は手で編集しない。`uses:` を変えたら repo のルートで `gh actions-lock` を実行し、書き換わった workflow と lockfile を一緒にコミットする。lockfile は `verify-lockfile.yml` が `gh actions-lock --verify` で検査する。運用の正本は kan/dotfiles の `docs/github-actions.md`。
+
 手元では、テストの並列の数を絞って回す（`npm test -- --maxWorkers=4`）。既定では CPU の数だけワーカーを立てるので、ほかの重い処理と重なるとマシンが固まる。
 
 ### バランスのシミュレーション

@@ -20,8 +20,16 @@ updates:
           - "minor"
           - "patch"
 
-  # GitHub Actions
+  # GitHub Actions。PR は .github/workflows/actions.lock の該当エントリも作り直す。
+  # cooldown: 公開から 3 日経った版だけを取り込む。問題のある版や、乗っ取られて公開された版は、
+  # たいてい数日のうちに取り下げられるため。セキュリティ更新は対象外なので遅れない
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
       interval: "weekly"
+    cooldown:
+      default-days: 3
+    groups:
+      github-actions:
+        patterns:
+          - "*"
