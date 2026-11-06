@@ -16,14 +16,14 @@
     "cf-typegen": "wrangler types --strict-vars=false"
   },
   "dependencies": {
-    "hono": "^4.13.13",
-    "jose": "^6.2.12",
+    "hono": "^4.13.16",
+    "jose": "^6.2.15",
     "zod": "^4.6.7"
   },
   "devDependencies": {
-    "@cloudflare/vitest-plugin": "^1.4.5",
+    "@cloudflare/vitest-plugin": "^1.5.1",
     "typescript": "^6.0.3",
-    "vitest": "^5.0.5",
+    "vitest": "^5.1.0",
     "wrangler": "^4.151.0"
   }
 }
