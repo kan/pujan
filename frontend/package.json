@@ -10,14 +10,14 @@
     "test": "vitest run --passWithNoTests"
   },
   "devDependencies": {
-    "@vitejs/plugin-vue": "^6.0.10",
+    "@vitejs/plugin-vue": "^6.0.11",
     "pinia": "^4.1.0",
     "typescript": "^6.0.3",
-    "vite": "^8.3.6",
+    "vite": "^8.3.8",
     "vite-plugin-pwa": "^2.0.0",
     "vitest": "^5.1.0",
     "vue": "^3.5.45",
-    "vue-router": "^5.4.0",
+    "vue-router": "^5.5.1",
     "vue-tsc": "^3.3.14"
   }
 }
