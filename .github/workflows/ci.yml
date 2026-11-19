@@ -1,7 +1,9 @@
 name: CI
 
 on:
+  # ブランチだけ。本番のデプロイが push する production タグは、main で検査済みのコミットを指すので走らせない
   push:
+    branches: ["**"]
   workflow_dispatch:
 
 permissions:
