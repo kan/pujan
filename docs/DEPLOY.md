@@ -81,5 +81,6 @@ npm run deploy:dev        # 本番は npm run deploy
 ```
 
 - マイグレーションを足したときは、デプロイの前に適用される（`db:migrate:*`）。適用済みのマイグレーションは書き換えない
+- 本番の `npm run deploy` は、出し終えたら `production` タグを今のコミット（HEAD）へ動かし、出した日時のタグ `production-<UTC の日時>` も足して push する（`tag:production`）。kan/dotfiles の `gh-blog-diff` が、本番に出た変更をこれらのタグから拾うため。コミットしてから出す。タグの push だけが失敗したときは、出したコミットで `npm run tag:production` を実行し直す
 - engine の版（`ENGINE_VERSION`）を上げたデプロイでは、進行中のランの記録は `version_mismatch` で断られる（端末に残った古いランは端末の中だけで終わる）
 - kan/game が ID の署名鍵を入れ替えるときは、kan/game docs/ID_DESIGN.md「鍵の管理」に従って、新しい公開鍵の一覧を `ID_PUBLIC_KEYS` へ写してデプロイする
